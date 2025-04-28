@@ -1,0 +1,36 @@
+﻿<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>処理結果</title>
+  </head>
+  <body>
+    <h1>色量子化結果</h1>
+
+    <!-- 処理後の画像 -->
+    <div>
+      <img
+        src="{{ url_for('static', filename='processed/' + filename) }}"
+        alt="Quantized Image"
+      >
+    </div>
+
+    <p>
+      <!-- 元に戻すボタン -->
+      <button
+        type="button"
+        onclick="window.location.href='{{ url_for('original_file', filename=original) }}'"
+      >
+        元に戻す
+      </button>
+
+      <!-- 別の画像を処理するボタン -->
+      <button
+        type="button"
+        onclick="window.location.href='{{ url_for('index') }}'"
+      >
+        別の画像を処理する
+      </button>
+    </p>
+  </body>
+</html>

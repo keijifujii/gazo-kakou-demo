@@ -1,0 +1,45 @@
+﻿<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Color Quantization</title>
+    <style>
+      /* スライダー下の数値表示用スタイル */
+      #kValue {
+        font-weight: bold;
+        margin-left: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>画像をアップロード</h1>
+    <form action="{{ url_for('process') }}" method="post" enctype="multipart/form-data">
+      <p>
+        <label for="image">画像ファイル：</label>
+        <input type="file" name="image" id="image" accept="image/*" required>
+      </p>
+      <p>
+        <label for="num_clusters">クラスタ数 (K)：</label>
+        <input
+          type="range"
+          id="num_clusters"
+          name="num_clusters"
+          min="5"
+          max="30"
+          value="20"
+          oninput="document.getElementById('kValue').textContent = this.value"
+        >
+        <span id="kValue">20</span>
+      </p>
+      <button type="submit">処理を実行</button>
+    </form>
+
+    <script>
+      // ページ読み込み時にも初期値を表示
+      document.addEventListener('DOMContentLoaded', function() {
+        const slider = document.getElementById('num_clusters');
+        document.getElementById('kValue').textContent = slider.value;
+      });
+    </script>
+  </body>
+</html>
