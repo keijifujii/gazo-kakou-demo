@@ -18,6 +18,7 @@ MarkupSafe==2.1.5
 mysql-connector-python==9.0.0
 mysqlclient==2.2.4
 numpy==2.1.0
+opencv-python==4.11.0.86
 ortools==9.11.4210
 packaging==25.0
 pandas==2.2.2
