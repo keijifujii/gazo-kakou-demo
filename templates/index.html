@@ -1,45 +1,185 @@
 ﻿<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Color Quantization</title>
-    <style>
-      /* スライダー下の数値表示用スタイル */
-      #kValue {
-        font-weight: bold;
-        margin-left: 8px;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>画像をアップロード</h1>
-    <form action="{{ url_for('process') }}" method="post" enctype="multipart/form-data">
-      <p>
-        <label for="image">画像ファイル：</label>
-        <input type="file" name="image" id="image" accept="image/*" required>
-      </p>
-      <p>
-        <label for="num_clusters">クラスタ数 (K)：</label>
-        <input
-          type="range"
-          id="num_clusters"
-          name="num_clusters"
-          min="5"
-          max="30"
-          value="20"
-          oninput="document.getElementById('kValue').textContent = this.value"
-        >
-        <span id="kValue">20</span>
-      </p>
-      <button type="submit">処理を実行</button>
-    </form>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>トリミング＋色調調整＋色量子化</title>
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css"
+  />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .container { display: flex; justify-content: space-between; }
+    .form-area, .preview-area { width: 55%; }
+    .preview-area img {
+      width: 100%; max-height: 600px; object-fit: contain;
+      border: 1px solid #ccc; margin-top: 10px;
+    }
+    .buttons { margin-top: 10px; }
+    .buttons button { margin-right: 8px; }
+    .slider { margin: 10px 0; }
+    .slider label { display: block; font-weight: bold; }
+  </style>
+</head>
+<body>
 
-    <script>
-      // ページ読み込み時にも初期値を表示
-      document.addEventListener('DOMContentLoaded', function() {
-        const slider = document.getElementById('num_clusters');
-        document.getElementById('kValue').textContent = slider.value;
-      });
-    </script>
-  </body>
+<h1>画像トリミング→色調整→色量子化</h1>
+
+<div class="container">
+  <!-- 左：操作パネル -->
+  <div class="form-area">
+    <p>
+      <label>画像選択：</label><br>
+      <input type="file" id="image" accept="image/*">
+    </p>
+
+    <!-- トリミング実行ボタン -->
+    <div class="buttons">
+      <button id="btnCrop" disabled>① トリミング実行</button>
+    </div>
+
+    <!-- 色調パラメータ -->
+    <div class="slider">
+      <label for="hue">色相シフト (－50～＋50): <span id="hueVal">0</span></label>
+      <input type="range" id="hue" min="-50" max="50" value="0"
+             oninput="hueVal.textContent=this.value">
+    </div>
+    <div class="slider">
+      <label for="sat">彩度倍率 (0～200%): <span id="satVal">100</span>%</label>
+      <input type="range" id="sat" min="0" max="200" value="100"
+             oninput="satVal.textContent=this.value">
+    </div>
+    <div class="slider">
+      <label for="val">明度倍率 (0～200%): <span id="valVal">100</span>%</label>
+      <input type="range" id="val" min="0" max="200" value="100"
+             oninput="valVal.textContent=this.value">
+    </div>
+
+    <!-- K-means -->
+    <div class="slider">
+      <label for="num_clusters">クラスタ数 K (5～30): <span id="kVal">20</span></label>
+      <input type="range" id="num_clusters" min="5" max="30" value="20"
+             oninput="kVal.textContent=this.value">
+    </div>
+
+    <div class="buttons">
+      <button id="btnAdjust" disabled>② 色調整実行</button>
+      <button id="btnQuantize" disabled>③ 色量子化実行</button>
+       <button id="btnReset">リセット</button>
+    </div>
+  </div>
+
+  <!-- 右：プレビュー -->
+  <div class="preview-area">
+    <h3>プレビュー (ドラッグで範囲選択してください)</h3>
+    <img id="preview" src="#" style="display:none">
+  </div>
+</div>
+
+<script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
+<script>
+let originalFile, croppedBlob, cropper;
+
+// ファイル選択：プレビュー表示＋Cropper起動
+document.getElementById('image').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  originalFile = file;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('preview');
+  img.src = url;
+  img.style.display = 'block';
+
+  // 既存Cropper破棄
+  if (cropper) cropper.destroy();
+  // 新規Cropper生成
+  cropper = new Cropper(img, {
+    viewMode: 1,
+    dragMode: 'crop',
+    autoCropArea: 1,
+  });
+  // 各ボタンを有効化
+  document.getElementById('btnCrop').disabled = false;
+  document.getElementById('btnAdjust').disabled = true;
+  document.getElementById('btnQuantize').disabled = true;
+});
+
+// ① トリミング実行
+document.getElementById('btnCrop').addEventListener('click', () => {
+  if (!cropper) return;
+  // Canvas に切り出し
+  const canvas = cropper.getCroppedCanvas();
+  // Blob 化して保持
+  canvas.toBlob(blob => {
+    croppedBlob = blob;
+    const url = URL.createObjectURL(blob);
+    document.getElementById('preview').src = url;
+    // Cropperはいったん破棄
+    cropper.destroy();
+    cropper = null;
+    // 次のステップを有効化
+    document.getElementById('btnAdjust').disabled = false;
+  }, 'image/jpeg');
+});
+
+// ② 色調整実行
+document.getElementById('btnAdjust').addEventListener('click', () => {
+  const form = new FormData();
+  //form.append('image', croppedBlob || originalFile);
+  
+  form.append(
+  'image',
+  croppedBlob || originalFile,
+  originalFile.name    // ここで必ず拡張子付きの名前を指定
+);
+  
+  form.append('hue', document.getElementById('hue').value);
+  form.append('sat', document.getElementById('sat').value);
+  form.append('val', document.getElementById('val').value);
+
+  fetch('{{ url_for("adjust") }}', {
+    method: 'POST',
+    body: form
+  })
+  .then(r=>r.json())
+  .then(data => {
+    // 調整後をプレビューに反映
+    document.getElementById('preview').src =
+      `/static/processed/${data.filename}?t=${Date.now()}`;
+    // 次ステップ有効化
+    document.getElementById('btnQuantize').disabled = false;
+  });
+});
+
+// ③ 色量子化実行
+document.getElementById('btnQuantize').addEventListener('click', () => {
+  fetch('{{ url_for("quantize") }}', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      filename: document.getElementById('preview').src.split('/').pop().split('?')[0],
+      num_clusters: document.getElementById('num_clusters').value
+    })
+  })
+  .then(r=>r.json())
+  .then(data => {
+    document.getElementById('preview').src =
+      `/static/processed/${data.filename}?t=${Date.now()}`;
+  });
+});
+
+
+btnReset.addEventListener('click', () => {
+  if (originalFile) {
+    preview.src = URL.createObjectURL(originalFile);
+    btnAdjust.disabled = false;
+    btnQuantize.disabled = true;
+  }
+});
+
+
+
+</script>
+
+</body>
 </html>

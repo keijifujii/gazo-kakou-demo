@@ -1,88 +1,141 @@
-# app.py
 import os
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
+from flask import (
+    Flask, render_template, request,
+    send_from_directory, jsonify, flash
+)
 from werkzeug.utils import secure_filename
 import cv2
 import numpy as np
 import config
 
-# アプリ＆設定読み込み
 app = Flask(__name__)
 app.config.from_object(config)
-app.secret_key = 'your-secret-key'  # 必要に応じて変更
+app.secret_key = 'your-secret-key'
 
-# 必要フォルダがなければ作成（ここで最初にやる）
+# Ensure upload and processed directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
-# --- 以下、ルート定義 ---
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+def allowed_file(fn):
+    return '.' in fn and fn.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
 
-@app.route('/process', methods=['POST'])
-def process():
-    if 'image' not in request.files:
-        flash('ファイルが選択されていません。')
-        return redirect(url_for('index'))
-    file = request.files['image']
-    if file.filename == '' or not allowed_file(file.filename):
-        flash('有効な画像ファイルを選択してください。')
-        return redirect(url_for('index'))
+# ① Color adjustment endpoint
+@app.route('/adjust', methods=['POST'])
+def adjust():
+    file = request.files.get('image')
+    if not file or not allowed_file(file.filename):
+        return jsonify({'error': 'invalid file'}), 400
 
-    filename = secure_filename(file.filename)
-    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    # Save original upload to UPLOAD_FOLDER
+    original_fn = secure_filename(file.filename)
+    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], original_fn)
     file.save(upload_path)
-    
-    try:
-        K = int(request.form.get('num_clusters', app.config['NUM_CLUSTERS']))
-    except ValueError:
-        K = app.config['NUM_CLUSTERS']
 
+    # HSV parameters from form
+    hue_shift = float(request.form.get('hue', 0))
+    sat_mul   = float(request.form.get('sat', 100)) / 100.0
+    val_mul   = float(request.form.get('val', 100)) / 100.0
+
+    # Read image and convert to HSV
     img = cv2.imread(upload_path)
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
+    # Apply shifts and multipliers
+    hsv[:, :, 0] = (hsv[:, :, 0] + hue_shift) % 180
+    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_mul, 0, 255)
+    hsv[:, :, 2] = np.clip(hsv[:, :, 2] * val_mul, 0, 255)
+    adjusted = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    # Save adjusted image to PROCESSED_FOLDER
+    adjusted_fn = f"adjusted_{original_fn}"
+    adjusted_path = os.path.join(app.config['PROCESSED_FOLDER'], adjusted_fn)
+    cv2.imwrite(adjusted_path, adjusted)
+
+    return jsonify({'filename': adjusted_fn})
+
+# ② Color quantization endpoint
+@app.route('/quantize', methods=['POST'])
+def quantize():
+    data = request.get_json()
+    filename = data.get('filename')
+    if not filename:
+        return jsonify({'error': 'no filename provided'}), 400
+
+    processed_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(processed_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = cv2.imread(processed_path)
     if img is None:
-        flash('画像の読み込みに失敗しました。')
-        return redirect(url_for('index'))
-        
-    img_small = cv2.resize(img, (0, 0), fx=app.config.get('RESIZE_SCALE', 0.5),
-                                 fy=app.config.get('RESIZE_SCALE', 0.5))
+        return jsonify({'error': 'cannot read image'}), 400
 
-    data = img_small.reshape((-1, 3))
-    data = np.float32(data)
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
-                app.config.get('TERM_CRITERIA_MAX_ITER', 10),
-                app.config.get('TERM_CRITERIA_EPS', 1.0))
-    attempts = app.config.get('KMEANS_ATTEMPTS', 10)
-    flags = cv2.KMEANS_PP_CENTERS
+    # Optionally resize/compress
+    resize_and_compress_opencv(
+        processed_path, processed_path,
+        max_width=800, max_height=800, target_kb=250
+    )
 
-    _, labels, centers = cv2.kmeans(data, K, None, criteria, attempts, flags)
+    # Perform k-means quantization
+    K = int(data.get('num_clusters', config.NUM_CLUSTERS))
+    small = cv2.resize(
+        img, (0, 0),
+        fx=config.RESIZE_SCALE,
+        fy=config.RESIZE_SCALE
+    )
+    pixels = small.reshape(-1, 3).astype(np.float32)
+    criteria = (
+        cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
+        config.TERM_CRITERIA_MAX_ITER,
+        config.TERM_CRITERIA_EPS
+    )
+    _, labels, centers = cv2.kmeans(
+        pixels, K, None, criteria,
+        config.KMEANS_ATTEMPTS,
+        cv2.KMEANS_PP_CENTERS
+    )
     centers = np.uint8(centers)
-    quantized = centers[labels.flatten()]
-    quantized_img = quantized.reshape(img_small.shape)
+    quantized = centers[labels.flatten()].reshape(small.shape)
 
-    out_filename = f"quantized_{filename}"
-    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_filename)
-    cv2.imwrite(out_path, quantized_img)
+    quant_fn = f"quantized_{filename}"
+    quant_path = os.path.join(app.config['PROCESSED_FOLDER'], quant_fn)
+    cv2.imwrite(quant_path, quantized)
 
-    return render_template('result.html', filename=out_filename, original=filename)
+    return jsonify({'filename': quant_fn})
 
 @app.route('/processed/<filename>')
-def processed_file(filename):
+def processed(filename):
     return send_from_directory(app.config['PROCESSED_FOLDER'], filename)
 
-@app.route('/original/<filename>')
-def original_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+# Utility function: resize and compress
 
-# --- 起動設定（これが一番最後） ---
+def resize_and_compress_opencv(input_path, output_path, max_width, max_height, target_kb):
+    img = cv2.imread(input_path)
+    h, w = img.shape[:2]
+    scale = min(max_width / w, max_height / h)
+    if scale < 1.0:
+        img = cv2.resize(
+            img,
+            (int(w*scale), int(h*scale)),
+            interpolation=cv2.INTER_AREA
+        )
+    max_bytes = target_kb * 1024
+    quality = 95
+    while True:
+        ok, buf = cv2.imencode(
+            '.jpg', img,
+            [cv2.IMWRITE_JPEG_QUALITY, quality]
+        )
+        if not ok or len(buf) <= max_bytes or quality <= 50:
+            break
+        quality -= 5
+    with open(output_path, 'wb') as f:
+        f.write(buf)
 
-    
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-    
-    
+if __name__ == '__main__':
+    app.run(
+        host='0.0.0.0',
+        port=int(os.environ.get('PORT', 5000))
+    )
