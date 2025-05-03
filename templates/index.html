@@ -127,11 +127,7 @@ document.getElementById('btnAdjust').addEventListener('click', () => {
   const form = new FormData();
   //form.append('image', croppedBlob || originalFile);
   
-  form.append(
-  'image',
-  croppedBlob || originalFile,
-  originalFile.name    // ここで必ず拡張子付きの名前を指定
-);
+  form.append( 'image', croppedBlob || originalFile, originalFile.name );
   
   form.append('hue', document.getElementById('hue').value);
   form.append('sat', document.getElementById('sat').value);
