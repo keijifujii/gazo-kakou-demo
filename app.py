@@ -1,7 +1,7 @@
 import os
 from flask import (
     Flask, render_template, request,
-    send_from_directory, jsonify, flash
+    send_from_directory, jsonify
 )
 from werkzeug.utils import secure_filename
 import cv2
@@ -12,7 +12,7 @@ app = Flask(__name__)
 app.config.from_object(config)
 app.secret_key = 'your-secret-key'
 
-# Ensure upload and processed directories exist
+# フォルダ準備
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
@@ -23,119 +23,137 @@ def allowed_file(fn):
 def index():
     return render_template('index.html')
 
-# ① Color adjustment endpoint
+# 色調整
 @app.route('/adjust', methods=['POST'])
 def adjust():
     file = request.files.get('image')
     if not file or not allowed_file(file.filename):
         return jsonify({'error': 'invalid file'}), 400
 
-    # Save original upload to UPLOAD_FOLDER
-    original_fn = secure_filename(file.filename)
-    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], original_fn)
-    file.save(upload_path)
+    fn = secure_filename(file.filename)
+    in_path = os.path.join(app.config['UPLOAD_FOLDER'], fn)
+    file.save(in_path)
 
-    # HSV parameters from form
-    hue_shift = float(request.form.get('hue', 0))
-    sat_mul   = float(request.form.get('sat', 100)) / 100.0
-    val_mul   = float(request.form.get('val', 100)) / 100.0
+    hue = float(request.form.get('hue', 0))
+    sat = float(request.form.get('sat', 100)) / 100.0
+    val = float(request.form.get('val', 100)) / 100.0
 
-    # Read image and convert to HSV
-    img = cv2.imread(upload_path)
+    img = cv2.imread(in_path)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
-    # Apply shifts and multipliers
-    hsv[:, :, 0] = (hsv[:, :, 0] + hue_shift) % 180
-    hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat_mul, 0, 255)
-    hsv[:, :, 2] = np.clip(hsv[:, :, 2] * val_mul, 0, 255)
-    adjusted = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+    hsv[:,:,0] = (hsv[:,:,0] + hue) % 180
+    hsv[:,:,1] = np.clip(hsv[:,:,1] * sat, 0, 255)
+    hsv[:,:,2] = np.clip(hsv[:,:,2] * val, 0, 255)
+    out = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # Save adjusted image to PROCESSED_FOLDER
-    adjusted_fn = f"adjusted_{original_fn}"
-    adjusted_path = os.path.join(app.config['PROCESSED_FOLDER'], adjusted_fn)
-    cv2.imwrite(adjusted_path, adjusted)
+    out_fn = f"adjusted_{fn}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, out)
+    return jsonify({'filename': out_fn})
 
-    return jsonify({'filename': adjusted_fn})
+# ぼかし
+@app.route('/blur', methods=['POST'])
+def blur():
+    filename = request.form.get('filename')
+    try:
+        radius = int(request.form.get('radius', 0))
+    except ValueError:
+        return jsonify({'error': 'invalid radius'}), 400
 
-# ② Color quantization endpoint
-@app.route('/quantize', methods=['POST'])
-def quantize():
-    data = request.get_json()
-    filename = data.get('filename')
-    if not filename:
-        return jsonify({'error': 'no filename provided'}), 400
-
-    processed_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
-    if not os.path.exists(processed_path):
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
         return jsonify({'error': 'file not found'}), 404
 
-    img = cv2.imread(processed_path)
+    img = cv2.imread(in_path)
+    k = max(1, radius * 2 + 1)
+    blurred = cv2.GaussianBlur(img, (k, k), 0)
+
+    out_fn = f"blur_{radius}_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, blurred)
+    return jsonify({'filename': out_fn})
+
+# ポスタライズ
+@app.route('/posterize', methods=['POST'])
+def posterize():
+    filename = request.form.get('filename')
+    try:
+        levels = int(request.form.get('levels', 4))
+        if levels < 2:
+            raise ValueError
+    except ValueError:
+        return jsonify({'error': 'invalid levels'}), 400
+
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = cv2.imread(in_path)
+    # Improved uniform posterization: nearest of equally spaced levels
+    step = 255.0 / (levels - 1)
+    # Apply per-channel mapping
+    poster = np.round(img.astype(np.float32) / step) * step
+    poster = np.clip(poster, 0, 255).astype(np.uint8)
+
+    out_fn = f"posterize_{levels}_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, poster)
+    return jsonify({'filename': out_fn})
+
+
+
+@app.route('/edges', methods=['POST'])
+def edges():
+    """⑤ 境界線抽出──Canny→反転で細い黒線のみを描画"""
+    filename = request.form.get('filename')
+    try:
+        # optional: スライダーで調整したい場合はフォームから threshold を取る
+        thresh1 = int(request.form.get('th1', 50))
+        thresh2 = int(request.form.get('th2', 150))
+    except ValueError:
+        return jsonify({'error': 'invalid thresholds'}), 400
+
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = cv2.imread(in_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         return jsonify({'error': 'cannot read image'}), 400
 
-    # Optionally resize/compress
-    resize_and_compress_opencv(
-        processed_path, processed_path,
-        max_width=800, max_height=800, target_kb=250
-    )
+    # Canny でエッジ検出 → 白線 on 黒背景 → invert → 黒線 on 白背景
+    edges = cv2.Canny(img, thresh1, thresh2)
+    inv = cv2.bitwise_not(edges)
+    # convert single→3ch so browser can display as jpg/png
+    out = cv2.cvtColor(inv, cv2.COLOR_GRAY2BGR)
 
-    # Perform k-means quantization
-    K = int(data.get('num_clusters', config.NUM_CLUSTERS))
-    small = cv2.resize(
-        img, (0, 0),
-        fx=config.RESIZE_SCALE,
-        fy=config.RESIZE_SCALE
-    )
-    pixels = small.reshape(-1, 3).astype(np.float32)
-    criteria = (
-        cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
-        config.TERM_CRITERIA_MAX_ITER,
-        config.TERM_CRITERIA_EPS
-    )
-    _, labels, centers = cv2.kmeans(
-        pixels, K, None, criteria,
-        config.KMEANS_ATTEMPTS,
-        cv2.KMEANS_PP_CENTERS
-    )
-    centers = np.uint8(centers)
-    quantized = centers[labels.flatten()].reshape(small.shape)
+    out_fn = f"edges_{thresh1}_{thresh2}_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, out)
+    return jsonify({'filename': out_fn})
 
-    quant_fn = f"quantized_{filename}"
-    quant_path = os.path.join(app.config['PROCESSED_FOLDER'], quant_fn)
-    cv2.imwrite(quant_path, quantized)
 
-    return jsonify({'filename': quant_fn})
+
+
 
 @app.route('/processed/<filename>')
 def processed(filename):
     return send_from_directory(app.config['PROCESSED_FOLDER'], filename)
 
-# Utility function: resize and compress
-
 def resize_and_compress_opencv(input_path, output_path, max_width, max_height, target_kb):
     img = cv2.imread(input_path)
     h, w = img.shape[:2]
-    scale = min(max_width / w, max_height / h)
+    scale = min(max_width/w, max_height/h)
     if scale < 1.0:
-        img = cv2.resize(
-            img,
-            (int(w*scale), int(h*scale)),
-            interpolation=cv2.INTER_AREA
-        )
+        img = cv2.resize(img, (int(w*scale), int(h*scale)), interpolation=cv2.INTER_AREA)
     max_bytes = target_kb * 1024
-    quality = 95
+    q = 95
     while True:
-        ok, buf = cv2.imencode(
-            '.jpg', img,
-            [cv2.IMWRITE_JPEG_QUALITY, quality]
-        )
-        if not ok or len(buf) <= max_bytes or quality <= 50:
+        ok, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, q])
+        if not ok or len(buf) <= max_bytes or q <= 50:
             break
-        quality -= 5
+        q -= 5
     with open(output_path, 'wb') as f:
         f.write(buf)
 
 if __name__ == '__main__':
-    app.run(
-        host='0.0.0.0',
-        port=int(os.environ.get('PORT', 5000))
-    )
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
