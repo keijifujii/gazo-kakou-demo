@@ -1,88 +1,200 @@
-# app.py
 import os
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory, flash
+from flask import (
+    Flask, render_template, request,
+    send_from_directory, jsonify
+)
 from werkzeug.utils import secure_filename
 import cv2
 import numpy as np
 import config
 
-# アプリ＆設定読み込み
-app = Flask(__name__)
-app.config.from_object(config)
-app.secret_key = 'your-secret-key'  # 必要に応じて変更
+from realesrgan import RealESRGANer  # AI超解像モデルを利用
+from PIL import Image
 
-# 必要フォルダがなければ作成（ここで最初にやる）
+# Flaskアプリケーションの作成
+app = Flask(__name__)
+app.config.from_object(config)  # 設定読み込み
+app.secret_key = 'your-secret-key'  # セッションなどで使用
+
+# アップロード・処理後フォルダの準備
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
-# --- 以下、ルート定義 ---
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+# 許可する画像ファイルか判定するユーティリティ関数
+def allowed_file(fn):
+    return '.' in fn and fn.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
+# ---------------------------------
+# ① トップページ表示
+# ---------------------------------
 @app.route('/', methods=['GET'])
 def index():
+    # index.htmlテンプレートをレンダリング
     return render_template('index.html')
 
-@app.route('/process', methods=['POST'])
-def process():
-    if 'image' not in request.files:
-        flash('ファイルが選択されていません。')
-        return redirect(url_for('index'))
-    file = request.files['image']
-    if file.filename == '' or not allowed_file(file.filename):
-        flash('有効な画像ファイルを選択してください。')
-        return redirect(url_for('index'))
+# ---------------------------------
+# ② 色調整機能
+#    色相(hue)、彩度(sat)、明度(val)をスライダーで調整
+# ---------------------------------
+@app.route('/adjust', methods=['POST'])
+def adjust():
+    file = request.files.get('image')
+    if not file or not allowed_file(file.filename):
+        return jsonify({'error': 'invalid file'}), 400
 
-    filename = secure_filename(file.filename)
-    upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(upload_path)
-    
+    fn = secure_filename(file.filename)
+    in_path = os.path.join(app.config['UPLOAD_FOLDER'], fn)
+    file.save(in_path)
+
+    # パラメータ取得
+    hue = float(request.form.get('hue', 0))
+    sat = float(request.form.get('sat', 100)) / 100.0
+    val = float(request.form.get('val', 100)) / 100.0
+
+    img = cv2.imread(in_path)
+    # HSV空間で調整
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
+    hsv[:,:,0] = (hsv[:,:,0] + hue) % 180
+    hsv[:,:,1] = np.clip(hsv[:,:,1] * sat, 0, 255)
+    hsv[:,:,2] = np.clip(hsv[:,:,2] * val, 0, 255)
+    out = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    out_fn = f"adjusted_{fn}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, out)
+    return jsonify({'filename': out_fn})
+
+# ---------------------------------
+# ③ ぼかし機能
+#    GaussianBlurで画像をぼかす
+# ---------------------------------
+@app.route('/blur', methods=['POST'])
+def blur():
+    filename = request.form.get('filename')
     try:
-        K = int(request.form.get('num_clusters', app.config['NUM_CLUSTERS']))
+        radius = int(request.form.get('radius', 0))
     except ValueError:
-        K = app.config['NUM_CLUSTERS']
+        return jsonify({'error': 'invalid radius'}), 400
 
-    img = cv2.imread(upload_path)
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = cv2.imread(in_path)
+    k = max(1, radius * 2 + 1)
+    blurred = cv2.GaussianBlur(img, (k, k), 0)
+
+    out_fn = f"blur_{radius}_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, blurred)
+    return jsonify({'filename': out_fn})
+
+# ---------------------------------
+# ④ ポスタライズ機能
+#    指定階調数levelsで色数を制限
+# ---------------------------------
+@app.route('/posterize', methods=['POST'])
+def posterize():
+    filename = request.form.get('filename')
+    try:
+        levels = int(request.form.get('levels', 4))
+        if levels < 2:
+            raise ValueError
+    except ValueError:
+        return jsonify({'error': 'invalid levels'}), 400
+
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = cv2.imread(in_path)
+    step = 255.0 / (levels - 1)
+    poster = np.round(img.astype(np.float32) / step) * step
+    poster = np.clip(poster, 0, 255).astype(np.uint8)
+
+    out_fn = f"posterize_{levels}_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, poster)
+    return jsonify({'filename': out_fn})
+
+# ---------------------------------
+# ⑤ 境界線抽出機能
+#    Cannyエッジ検出＋反転で線画化
+# ---------------------------------
+@app.route('/edges', methods=['POST'])
+def edges():
+    filename = request.form.get('filename')
+    try:
+        thresh1 = int(request.form.get('th1', 50))
+        thresh2 = int(request.form.get('th2', 150))
+    except ValueError:
+        return jsonify({'error': 'invalid thresholds'}), 400
+
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = cv2.imread(in_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
-        flash('画像の読み込みに失敗しました。')
-        return redirect(url_for('index'))
-        
-    img_small = cv2.resize(img, (0, 0), fx=app.config.get('RESIZE_SCALE', 0.5),
-                                 fy=app.config.get('RESIZE_SCALE', 0.5))
+        return jsonify({'error': 'cannot read image'}), 400
 
-    data = img_small.reshape((-1, 3))
-    data = np.float32(data)
-    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
-                app.config.get('TERM_CRITERIA_MAX_ITER', 10),
-                app.config.get('TERM_CRITERIA_EPS', 1.0))
-    attempts = app.config.get('KMEANS_ATTEMPTS', 10)
-    flags = cv2.KMEANS_PP_CENTERS
+    edges = cv2.Canny(img, thresh1, thresh2)
+    inv = cv2.bitwise_not(edges)
+    out = cv2.cvtColor(inv, cv2.COLOR_GRAY2BGR)
 
-    _, labels, centers = cv2.kmeans(data, K, None, criteria, attempts, flags)
-    centers = np.uint8(centers)
-    quantized = centers[labels.flatten()]
-    quantized_img = quantized.reshape(img_small.shape)
+    out_fn = f"edges_{thresh1}_{thresh2}_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    cv2.imwrite(out_path, out)
+    return jsonify({'filename': out_fn})
 
-    out_filename = f"quantized_{filename}"
-    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_filename)
-    cv2.imwrite(out_path, quantized_img)
-
-    return render_template('result.html', filename=out_filename, original=filename)
-
+# ---------------------------------
+# ⑥ プロセス済みファイル配信エンドポイント
+# ---------------------------------
 @app.route('/processed/<filename>')
-def processed_file(filename):
+def processed(filename):
     return send_from_directory(app.config['PROCESSED_FOLDER'], filename)
 
-@app.route('/original/<filename>')
-def original_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
-# --- 起動設定（これが一番最後） ---
+# ---------------------------------
+# ⑦ 鮮明化（超解像）機能
+#    Real-ESRGANを使って4倍超解像
+# ---------------------------------
+@app.route('/superres', methods=['POST'])
+def superres():
+    filename = request.form.get('filename')
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
 
-    
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    # モデルロード設定
+    model_path = 'models/realesr-general-x4v3.pth'
+    upsampler = RealESRGANer(
+        scale=4,
+        model_path=model_path,
+        model_name='realesr-general-x4v3',
+        tile=128,
+        tile_pad=10,
+        pre_pad=0,
+        half=True
+    )
 
-    
-    
+    img = Image.open(in_path).convert('RGB')
+    np_img = np.array(img)
+    try:
+        output, _ = upsampler.enhance(np_img)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    out_fn = f"superres_{filename}"
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    Image.fromarray(output).save(out_path)
+    return jsonify({'filename': out_fn})
+
+# ---------------------------------
+# アプリ起動
+# ---------------------------------
+if __name__ == '__main__':
+    # DEBUGモードで起動（エラー時に詳細表示）
+    app.run(host='0.0.0.0',
+             port=int(os.environ.get('PORT', 5000)),
+             debug=True)

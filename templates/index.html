@@ -1,45 +1,165 @@
 ﻿<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Color Quantization</title>
-    <style>
-      /* スライダー下の数値表示用スタイル */
-      #kValue {
-        font-weight: bold;
-        margin-left: 8px;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>画像をアップロード</h1>
-    <form action="{{ url_for('process') }}" method="post" enctype="multipart/form-data">
-      <p>
-        <label for="image">画像ファイル：</label>
-        <input type="file" name="image" id="image" accept="image/*" required>
-      </p>
-      <p>
-        <label for="num_clusters">クラスタ数 (K)：</label>
-        <input
-          type="range"
-          id="num_clusters"
-          name="num_clusters"
-          min="5"
-          max="30"
-          value="20"
-          oninput="document.getElementById('kValue').textContent = this.value"
-        >
-        <span id="kValue">20</span>
-      </p>
-      <button type="submit">処理を実行</button>
-    </form>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>画像編集アプリ（トリミング→色調整→ぼかし→ポスタライズ→境界線抽出→鮮明化）</title>
+  <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .container { display: flex; gap: 20px; }
+    .form-area { flex: 1; max-width: 350px; }
+    .preview-area { flex: 1; }
+    .preview-area img { width: 100%; max-height: 600px; object-fit: contain; border: 1px solid #ccc; margin-bottom: 10px; }
+    .slider { margin: 10px 0; }
+    .slider label { display: block; font-weight: bold; margin-bottom: 4px; }
+    .buttons { margin: 10px 0; }
+    .buttons button, .buttons a { margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <h1>画像編集アプリ</h1>
+  <div class="container">
+    <div class="form-area">
+      <p><label>画像選択：</label><br><input type="file" id="image" accept="image/*"></p>
+      <div class="buttons">
+        <button id="btnCrop" disabled>① トリミング実行</button>
+        <button id="btnReset" disabled>全てリセット</button>
+      </div>
+      <!-- 色調整 -->
+      <div class="slider"><label>色相: <span id="hueVal">0</span></label><input type="range" id="hue" min="-50" max="50" value="0" oninput="hueVal.textContent=this.value"></div>
+      <div class="slider"><label>彩度: <span id="satVal">100</span>%</label><input type="range" id="sat" min="0" max="200" value="100" oninput="satVal.textContent=this.value"></div>
+      <div class="slider"><label>明度: <span id="valVal">100</span>%</label><input type="range" id="val" min="0" max="200" value="100" oninput="valVal.textContent=this.value"></div>
+      <div class="buttons">
+        <button id="btnAdjust" disabled>② 色調整実行</button>
+        <button id="btnUndoAdjust" disabled>戻る</button>
+      </div>
+      <!-- ぼかし -->
+      <div class="slider"><label>ぼかし: <span id="blurVal">0</span></label><input type="range" id="blur" min="0" max="10" value="0" oninput="blurVal.textContent=this.value"></div>
+      <div class="buttons">
+        <button id="btnBlur" disabled>③ ぼかし実行</button>
+        <button id="btnUndoBlur" disabled>戻る</button>
+      </div>
+      <!-- ポスタライズ -->
+      <div class="slider"><label>階調数: <span id="levelsVal">10</span></label><input type="range" id="levels" min="2" max="20" value="10" oninput="levelsVal.textContent=this.value"></div>
+      <div class="buttons">
+        <button id="btnPosterize" disabled>④ ポスタライズ実行</button>
+        <button id="btnUndoPosterize" disabled>戻る</button>
+      </div>
+      <!-- エッジ抽出 -->
+      <div class="slider"><label>閾値1: <span id="th1Val">50</span></label><input type="range" id="th1" min="1" max="200" value="50" oninput="th1Val.textContent=this.value"></div>
+      <div class="slider"><label>閾値2: <span id="th2Val">70</span></label><input type="range" id="th2" min="1" max="300" value="70" oninput="th2Val.textContent=this.value"></div>
+      <div class="buttons">
+        <button id="btnEdges" disabled>⑤ 境界線抽出実行</button>
+        <button id="btnUndoEdges" disabled>戻る</button>
+      </div>
+      <!-- 鮮明化 -->
+      <div class="buttons">
+        <button id="btnSuperres" disabled>⑥ 鮮明化実行（4倍）</button>
+        <button id="btnUndoSuperres" disabled>戻る</button>
+      </div>
+      <div class="buttons">
+        <a id="downloadBtn" href="#" download style="display:none;">ダウンロード</a>
+      </div>
+    </div>
+    <div class="preview-area">
+      <h3>プレビュー</h3>
+      <img id="cropperImage" style="display:none;">
+      <img id="preview" style="display:none;">
+    </div>
+  </div>
+  <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
+  <script>
+    const btns = ['btnCrop','btnReset','btnAdjust','btnUndoAdjust','btnBlur','btnUndoBlur','btnPosterize','btnUndoPosterize','btnEdges','btnUndoEdges','btnSuperres','btnUndoSuperres'];
+    const buttons = {};
+    btns.forEach(id => buttons[id] = document.getElementById(id));
+    const downloadBtn = document.getElementById('downloadBtn');
+    const cropperImage = document.getElementById('cropperImage');
+    const preview = document.getElementById('preview');
+    let originalFile, croppedBlob, cropper, history = [];
 
-    <script>
-      // ページ読み込み時にも初期値を表示
-      document.addEventListener('DOMContentLoaded', function() {
-        const slider = document.getElementById('num_clusters');
-        document.getElementById('kValue').textContent = slider.value;
+    function resetButtons() {
+      btns.forEach(id => buttons[id].disabled = true);
+    }
+    function enableButtons(ids) {
+      ids.forEach(id => buttons[id].disabled = false);
+    }
+    function pushAndPreview(res) {
+      return res.json().then(data => {
+        const url = `/static/processed/${data.filename}?t=${Date.now()}`;
+        history.push({url,fn:data.filename});
+        preview.src=url; preview.style.display='block'; cropperImage.style.display='none';
+        downloadBtn.href=url; downloadBtn.download=data.filename; downloadBtn.style.display='inline-block';
+        // 鮮明化は常に有効
+        buttons.btnSuperres.disabled = false;
       });
-    </script>
-  </body>
+    }
+    function undoTo(predicate) {
+      while(history.length>1) {
+        const top = history.pop();
+        if(predicate(top.fn)) break;
+      }
+      const last = history[history.length-1];
+      preview.src=last.url; downloadBtn.href=last.url; downloadBtn.download=last.fn;
+    }
+
+    document.getElementById('image').addEventListener('change', e => {
+      originalFile=e.target.files[0]; if(!originalFile)return;
+      cropperImage.src=URL.createObjectURL(originalFile); cropperImage.style.display='block'; preview.style.display='none'; downloadBtn.style.display='none';
+      if(cropper)cropper.destroy();
+      cropper=new Cropper(cropperImage,{viewMode:1,dragMode:'crop',autoCropArea:1});
+      resetButtons(); enableButtons(['btnCrop','btnReset']); history=[];
+    });
+
+    buttons.btnCrop.addEventListener('click',()=>{
+      cropper.getCroppedCanvas().toBlob(blob=>{
+        croppedBlob=blob; const url=URL.createObjectURL(blob);
+        history=[{url,fn:'original_crop.jpg'}]; preview.src=url; preview.style.display='block'; cropper.destroy();cropper=null;
+        enableButtons(['btnAdjust','btnSuperres','btnReset']);
+      },'image/jpeg');
+    });
+    buttons.btnReset.addEventListener('click',()=>{ document.getElementById('image').dispatchEvent(new Event('change')); });
+
+    buttons.btnAdjust.addEventListener('click',()=>{
+      const form=new FormData(); form.append('image',croppedBlob||originalFile,originalFile.name);
+      form.append('hue',document.getElementById('hue').value);
+      form.append('sat',document.getElementById('sat').value);
+      form.append('val',document.getElementById('val').value);
+      fetch('{{ url_for("adjust") }}',{method:'POST',body:form}).then(pushAndPreview);
+      enableButtons(['btnUndoAdjust','btnBlur']);
+    });
+    buttons.btnUndoAdjust.addEventListener('click',()=>{undoTo(fn=>fn==='original_crop.jpg');enableButtons(['btnAdjust','btnSuperres']);});
+
+    buttons.btnBlur.addEventListener('click',()=>{
+      const fn=history[history.length-1].fn;
+      const form=new FormData(); form.append('filename',fn); form.append('radius',document.getElementById('blur').value);
+      fetch('{{ url_for("blur") }}',{method:'POST',body:form}).then(pushAndPreview);
+      enableButtons(['btnUndoBlur','btnPosterize']);
+    });
+    buttons.btnUndoBlur.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('adjusted_'));enableButtons(['btnBlur','btnSuperres']);});
+
+    buttons.btnPosterize.addEventListener('click',()=>{
+      const fn=history[history.length-1].fn; const levels=document.getElementById('levels').value;
+      const form=new FormData(); form.append('filename',fn); form.append('levels',levels);
+      fetch('{{ url_for("posterize") }}',{method:'POST',body:form}).then(pushAndPreview);
+      enableButtons(['btnUndoPosterize','btnEdges']);
+    });
+    buttons.btnUndoPosterize.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('blur_')||fn.startsWith('adjusted_'));enableButtons(['btnPosterize','btnSuperres']);});
+
+    buttons.btnEdges.addEventListener('click',()=>{
+      const fn=history[history.length-1].fn; const th1=document.getElementById('th1').value; const th2=document.getElementById('th2').value;
+      const form=new FormData(); form.append('filename',fn); form.append('th1',th1); form.append('th2',th2);
+      fetch('{{ url_for("edges") }}',{method:'POST',body:form}).then(pushAndPreview);
+      enableButtons(['btnUndoEdges','btnSuperres']);
+    });
+    buttons.btnUndoEdges.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('posterize_')||fn.startsWith('blur_')||fn.startsWith('adjusted_'));enableButtons(['btnEdges','btnSuperres']);});
+
+    buttons.btnSuperres.addEventListener('click',()=>{
+      const fn=history[history.length-1].fn;
+      const form=new FormData(); form.append('filename',fn);
+      fetch('{{ url_for("superres") }}',{method:'POST',body:form}).then(pushAndPreview);
+      enableButtons(['btnUndoSuperres']);
+    });
+    buttons.btnUndoSuperres.addEventListener('click',()=>{undoTo(fn=>!fn.startsWith('superres_'));enableButtons(['btnSuperres']);});
+  </script>
+</body>
 </html>
