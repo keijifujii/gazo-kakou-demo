@@ -2,17 +2,11 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-<<<<<<< HEAD
+
   <title>画像編集アプリ（トリミング→色調整→ぼかし→ポスタライズ→境界線抽出→鮮明化）</title>
   <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" />
   <style>
-=======
-  <title>画像トリミング→色調整→ぼかし→ポスタライズ→境界線抽出</title>
-  <!-- Cropper.js のスタイル -->
-  <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" />
-  <style>
-    /* 全体レイアウト */
->>>>>>> 69f2387b42e400c360afba983bd9f023c22b0f46
+
     body { font-family: Arial, sans-serif; margin: 20px; }
     .container { display: flex; gap: 20px; }
     .form-area { flex: 1; max-width: 350px; }
@@ -25,7 +19,7 @@
   </style>
 </head>
 <body>
-<<<<<<< HEAD
+
   <h1>画像編集アプリ</h1>
   <div class="container">
     <div class="form-area">
@@ -129,194 +123,7 @@
     buttons.btnReset.addEventListener('click',()=>{ document.getElementById('image').dispatchEvent(new Event('change')); });
 
     buttons.btnAdjust.addEventListener('click',()=>{
-=======
-  <h1>画像トリミング→色調整→ぼかし→ポスタライズ→境界線抽出</h1>
-  <div class="container">
-    <!-- 操作パネル -->
-    <div class="form-area">
-      <!-- 画像選択 -->
-      <p><label>画像選択：</label><br><input type="file" id="image" accept="image/*"></p>
-      <div class="buttons">
-        <!-- トリミング実行 -->
-        <button id="btnCrop" type="button" disabled>① トリミング実行</button>
-        <!-- 全てリセット -->
-        <button id="btnReset" type="button" disabled>全てリセット</button>
-      </div>
-      <!-- 色調整スライダー -->
-      <div class="slider">
-        <label for="hue">色相シフト (−50〜+50): <span id="hueVal">0</span></label>
-        <input type="range" id="hue" min="-50" max="50" value="0" oninput="hueVal.textContent=this.value">
-      </div>
-      <div class="slider">
-        <label for="sat">彩度倍率 (0〜200%): <span id="satVal">100</span>%</label>
-        <input type="range" id="sat" min="0" max="200" value="100" oninput="satVal.textContent=this.value">
-      </div>
-      <div class="slider">
-        <label for="val">明度倍率 (0〜200%): <span id="valVal">100</span>%</label>
-        <input type="range" id="val" min="0" max="200" value="100" oninput="valVal.textContent=this.value">
-      </div>
-      <div class="buttons">
-        <!-- 色調整実行 -->
-        <button id="btnAdjust" type="button" disabled>② 色調整実行</button>
-        <!-- 色調整前に戻る -->
-        <button id="btnUndoAdjust" type="button" disabled>戻る</button>
-      </div>
-      <!-- ぼかしスライダー -->
-      <div class="slider">
-        <label for="blur">ぼかし強度 (0〜10): <span id="blurVal">0</span></label>
-        <input type="range" id="blur" min="0" max="10" step="1" value="0" oninput="blurVal.textContent=this.value">
-      </div>
-      <div class="buttons">
-        <!-- ぼかし実行 -->
-        <button id="btnBlur" type="button" disabled>③ ぼかし実行</button>
-        <!-- ぼかし前に戻る -->
-        <button id="btnUndoBlur" type="button" disabled>戻る</button>
-      </div>
-      <!-- ポスタライズ階調数 -->
-      <div class="slider">
-        <label for="levels">ポスタライズ階調数 (2〜20): <span id="levelsVal">10</span></label>
-        <input type="range" id="levels" min="2" max="20" step="1" value="10" oninput="levelsVal.textContent=this.value">
-      </div>
-      <div class="buttons">
-        <!-- ポスタライズ実行 -->
-        <button id="btnPosterize" type="button" disabled>④ ポスタライズ実行</button>
-        <!-- ポスタライズ前に戻る -->
-        <button id="btnUndoPosterize" type="button" disabled>戻る</button>
-      </div>
-      <!-- 画像ダウンロードリンク -->
-      <div class="buttons">
-        <a id="downloadBtn" href="#" download style="display:none;">ダウンロード</a>
-      </div>
-      <!-- 境界線抽出スライダー -->
-      <div class="slider">
-        <label for="th1">エッジ閾値1 (低): <span id="th1Val">50</span></label>
-        <input type="range" id="th1" min="1" max="200" value="50" oninput="th1Val.textContent=this.value">
-      </div>
-      <div class="slider">
-        <label for="th2">エッジ閾値2 (高): <span id="th2Val">70</span></label>
-        <input type="range" id="th2" min="1" max="300" value="70" oninput="th2Val.textContent=this.value">
-      </div>
-      <div class="buttons">
-        <!--境界線抽出実行 -->
-        <button id="btnEdges" type="button" disabled>⑤ 境界線抽出実行</button>
-        <!-- 境界線抽出前に戻る -->
-        <button id="btnUndoEdges" type="button" disabled>戻る</button>
-      </div>
-    </div>
-    <!-- プレビューエリア -->
-    <div class="preview-area">
-      <h3>プレビュー</h3>
-      <img id="cropperImage" alt="Crop Source" style="display:none;">
-      <img id="preview" alt="Preview" style="display:none;">
-    </div>
-  </div>
 
-  <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
-  <script>
-    // ボタン取得
-    const btnCrop = document.getElementById('btnCrop');
-    const btnReset = document.getElementById('btnReset');
-    const btnAdjust = document.getElementById('btnAdjust');
-    const btnUndoAdjust = document.getElementById('btnUndoAdjust');
-    const btnBlur = document.getElementById('btnBlur');
-    const btnUndoBlur = document.getElementById('btnUndoBlur');
-    const btnPosterize = document.getElementById('btnPosterize');
-    const btnUndoPosterize = document.getElementById('btnUndoPosterize');
-    const btnEdges = document.getElementById('btnEdges');
-    const btnUndoEdges = document.getElementById('btnUndoEdges');
-    const downloadBtn = document.getElementById('downloadBtn');
-
-    let originalFile, croppedBlob, cropper;
-    const cropperImage = document.getElementById('cropperImage');
-    const preview = document.getElementById('preview');
-    let history = [];
-
-    function pushAndPreview(res) {
-      res.json().then(data => {
-        const fn = data.filename;
-        const url = `/static/processed/${fn}?t=${Date.now()}`;
-        history.push({url, fn});
-        preview.src = url; preview.style.display = 'block';
-        // ダウンロード名設定
-        let downloadName = fn;
-        if(fn.startsWith('posterize_')){
-          const parts = fn.split('_');
-          downloadName = parts.slice(1).join('_');
-        } else if(fn.startsWith('edges_')){
-          const parts = fn.split('_');
-          downloadName = parts.slice(1).join('_');
-        }
-        downloadBtn.href = url; downloadBtn.download = downloadName; downloadBtn.style.display='inline-block';
-        cropperImage.style.display='none';
-      });
-    }
-
-    function undoTo(predicate){
-      while(history.length>1){
-        const top=history.pop(); if(predicate(top.fn)) break;
-      }
-      const last=history[history.length-1];
-      preview.src=last.url; preview.style.display='block';
-      downloadBtn.href=last.url; downloadBtn.download=last.fn; downloadBtn.style.display='inline-block';
-      updateButtonsStateAfterUndo();
-    }
-
-    function enableNext(step){
-      switch(step){
-        case 'crop': btnAdjust.disabled=false; btnReset.disabled=false; break;
-        case 'adjust': btnUndoAdjust.disabled=false; btnBlur.disabled=false; break;
-        case 'blur': btnUndoBlur.disabled=false; btnPosterize.disabled=false; break;
-        case 'posterize': btnUndoPosterize.disabled=false; btnEdges.disabled=false; break;
-        case 'edges': btnUndoEdges.disabled=false; break;
-      }
-    }
-
-    function updateButtonsStateAfterUndo(){
-      [btnAdjust,btnUndoAdjust,btnBlur,btnUndoBlur,btnPosterize,btnUndoPosterize,btnEdges,btnUndoEdges].forEach(b=>b.disabled=true);
-      const last=history[history.length-1].fn;
-      if(last.startsWith('edges_')) enableNext('edges');
-      else if(last.startsWith('posterize_')) enableNext('posterize');
-      else if(last.startsWith('blur_')) enableNext('blur');
-      else if(last.startsWith('adjusted_')) enableNext('adjust');
-      else enableNext('crop');
-    }
-
-    document.getElementById('image').addEventListener('change', e=>{
-      const file=e.target.files[0]; if(!file) return;
-      originalFile=file;
-      cropperImage.src=URL.createObjectURL(file);
-      cropperImage.style.display='block'; preview.style.display='none'; downloadBtn.style.display='none';
-      [btnCrop,btnReset].forEach(b=>b.disabled=false);
-      [btnAdjust,btnUndoAdjust,btnBlur,btnUndoBlur,btnPosterize,btnUndoPosterize,btnEdges,btnUndoEdges].forEach(b=>b.disabled=true);
-      if(cropper)cropper.destroy(); cropper=new Cropper(cropperImage,{viewMode:1,dragMode:'crop',autoCropArea:1}); history=[];
-    });
-
-    btnCrop.addEventListener('click',()=>{
-      if(!cropper)return;
-      cropper.getCroppedCanvas().toBlob(blob=>{
-        croppedBlob=blob;
-        const url=URL.createObjectURL(blob);
-        history=[{url,fn:'original_crop.jpg'}];
-        preview.src=url; preview.style.display='block';
-        cropper.destroy(); cropper=null; cropperImage.style.display='none'; enableNext('crop');
-      },'image/jpeg');
-    });
-
-    btnReset.addEventListener('click',()=>{
-      if(!originalFile)return;
-      cropperImage.src=URL.createObjectURL(originalFile);
-      cropperImage.style.display='block'; preview.style.display='none'; downloadBtn.style.display='none';
-      if(cropper)cropper.destroy(); cropper=new Cropper(cropperImage,{viewMode:1,dragMode:'crop',autoCropArea:1}); history=[];
-      [btnCrop,btnReset].forEach(b=>b.disabled=false); [btnAdjust,btnUndoAdjust,btnBlur,btnUndoBlur,btnPosterize,btnUndoPosterize,btnEdges,btnUndoEdges].forEach(b=>b.disabled=true);
-    });
-
-    btnAdjust.addEventListener('click',()=>{
->>>>>>> 69f2387b42e400c360afba983bd9f023c22b0f46
-      const form=new FormData(); form.append('image',croppedBlob||originalFile,originalFile.name);
-      form.append('hue',document.getElementById('hue').value);
-      form.append('sat',document.getElementById('sat').value);
-      form.append('val',document.getElementById('val').value);
-<<<<<<< HEAD
       fetch('{{ url_for("adjust") }}',{method:'POST',body:form}).then(pushAndPreview);
       enableButtons(['btnUndoAdjust','btnBlur']);
     });
@@ -353,29 +160,7 @@
       enableButtons(['btnUndoSuperres']);
     });
     buttons.btnUndoSuperres.addEventListener('click',()=>{undoTo(fn=>!fn.startsWith('superres_'));enableButtons(['btnSuperres']);});
-=======
-      fetch('{{ url_for("adjust") }}',{method:'POST',body:form}).then(res=>pushAndPreview(res)).then(()=>enableNext('adjust'));
-    }); btnUndoAdjust.addEventListener('click',()=>{undoTo(fn=>fn==='original_crop.jpg');});
 
-    btnBlur.addEventListener('click',()=>{
-      const fname=history[history.length-1].fn;
-      const form=new FormData(); form.append('filename',fname); form.append('radius',document.getElementById('blur').value);
-      fetch('{{ url_for("blur") }}',{method:'POST',body:form}).then(res=>pushAndPreview(res)).then(()=>enableNext('blur'));
-    }); btnUndoBlur.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('adjusted_'));});
-
-    btnPosterize.addEventListener('click',()=>{
-      const fname=history[history.length-1].fn;
-      const form=new FormData(); form.append('filename',fname); form.append('levels',document.getElementById('levels').value);
-      fetch('{{ url_for("posterize") }}',{method:'POST',body:form}).then(res=>pushAndPreview(res)).then(()=>enableNext('posterize'));
-    }); btnUndoPosterize.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('blur_')||fn.startsWith('adjusted_'));});
-
-    btnEdges.addEventListener('click',()=>{
-      const fname=history[history.length-1].fn;
-      const form=new FormData(); form.append('filename',fname);
-      form.append('th1',document.getElementById('th1').value); form.append('th2',document.getElementById('th2').value);
-      fetch('{{ url_for("edges") }}',{method:'POST',body:form}).then(res=>pushAndPreview(res)).then(()=>enableNext('edges'));
-    }); btnUndoEdges.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('posterize_')||fn.startsWith('blur_')||fn.startsWith('adjusted_'));});
->>>>>>> 69f2387b42e400c360afba983bd9f023c22b0f46
   </script>
 </body>
 </html>
