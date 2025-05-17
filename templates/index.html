@@ -1,12 +1,10 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-
   <title>画像編集アプリ（トリミング→色調整→ぼかし→ポスタライズ→境界線抽出→鮮明化）</title>
   <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" />
   <style>
-
     body { font-family: Arial, sans-serif; margin: 20px; }
     .container { display: flex; gap: 20px; }
     .form-area { flex: 1; max-width: 350px; }
@@ -19,7 +17,6 @@
   </style>
 </head>
 <body>
-
   <h1>画像編集アプリ</h1>
   <div class="container">
     <div class="form-area">
@@ -123,7 +120,10 @@
     buttons.btnReset.addEventListener('click',()=>{ document.getElementById('image').dispatchEvent(new Event('change')); });
 
     buttons.btnAdjust.addEventListener('click',()=>{
-
+      const form=new FormData(); form.append('image',croppedBlob||originalFile,originalFile.name);
+      form.append('hue',document.getElementById('hue').value);
+      form.append('sat',document.getElementById('sat').value);
+      form.append('val',document.getElementById('val').value);
       fetch('{{ url_for("adjust") }}',{method:'POST',body:form}).then(pushAndPreview);
       enableButtons(['btnUndoAdjust','btnBlur']);
     });
@@ -160,7 +160,6 @@
       enableButtons(['btnUndoSuperres']);
     });
     buttons.btnUndoSuperres.addEventListener('click',()=>{undoTo(fn=>!fn.startsWith('superres_'));enableButtons(['btnSuperres']);});
-
   </script>
 </body>
 </html>
