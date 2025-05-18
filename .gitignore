@@ -3,17 +3,12 @@ __pycache__/
 *.pyc
 
 # アップロード・処理画像の一時保存フォルダ（重い）
-<<<<<<< HEAD
+
 # uploads/
 # processed/
 # static/uploads/
 # static/processed/
-=======
-#uploads/
-#processed/
-#static/uploads/
-#static/processed/
->>>>>>> 69f2387b42e400c360afba983bd9f023c22b0f46
+
 
 # 仮想環境があれば除外（.venvなど）
 .venv/
