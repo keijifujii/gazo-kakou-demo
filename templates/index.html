@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
@@ -32,6 +32,14 @@
       <div class="buttons">
         <button id="btnAdjust" disabled>② 色調整実行</button>
         <button id="btnUndoAdjust" disabled>戻る</button>
+      </div>
+      <!-- コントラスト調整 -->
+      <div class="slider"><label>コントラスト: <span id="contrastVal">100</span>%</label>
+        <input type="range" id="contrast" min="50" max="200" value="100" oninput="contrastVal.textContent=this.value">
+      </div>
+      <div class="buttons">
+        <button id="btnContrast" disabled>コントラスト実行</button>
+        <button id="btnUndoContrast" disabled>戻る</button>
       </div>
       <!-- ぼかし -->
       <div class="slider"><label>ぼかし: <span id="blurVal">0</span></label><input type="range" id="blur" min="0" max="10" value="0" oninput="blurVal.textContent=this.value"></div>
@@ -67,9 +75,18 @@
       <img id="preview" style="display:none;">
     </div>
   </div>
+
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script>
-    const btns = ['btnCrop','btnReset','btnAdjust','btnUndoAdjust','btnBlur','btnUndoBlur','btnPosterize','btnUndoPosterize','btnEdges','btnUndoEdges','btnSuperres','btnUndoSuperres'];
+    const btns = [
+      'btnCrop','btnReset',
+      'btnAdjust','btnUndoAdjust',
+      'btnContrast','btnUndoContrast',
+      'btnBlur','btnUndoBlur',
+      'btnPosterize','btnUndoPosterize',
+      'btnEdges','btnUndoEdges',
+      'btnSuperres','btnUndoSuperres'
+    ];
     const buttons = {};
     btns.forEach(id => buttons[id] = document.getElementById(id));
     const downloadBtn = document.getElementById('downloadBtn');
@@ -85,81 +102,128 @@
     }
     function pushAndPreview(res) {
       return res.json().then(data => {
-        const url = `/static/processed/${data.filename}?t=${Date.now()}`;
+        if (data.error) { alert('エラー: ' + data.error); return; }
+        const base = data.url || `/processed/${data.filename}`;
+        const url = base + '?t=' + Date.now();
         history.push({url,fn:data.filename});
-        preview.src=url; preview.style.display='block'; cropperImage.style.display='none';
-        downloadBtn.href=url; downloadBtn.download=data.filename; downloadBtn.style.display='inline-block';
-        // 鮮明化は常に有効
+        preview.src = url;
+        preview.style.display = 'block';
+        cropperImage.style.display = 'none';
+        downloadBtn.href = url;
+        downloadBtn.download = data.filename;
+        downloadBtn.style.display = 'inline-block';
         buttons.btnSuperres.disabled = false;
       });
     }
     function undoTo(predicate) {
-      while(history.length>1) {
+      while(history.length > 1) {
         const top = history.pop();
         if(predicate(top.fn)) break;
       }
       const last = history[history.length-1];
-      preview.src=last.url; downloadBtn.href=last.url; downloadBtn.download=last.fn;
+      preview.src = last.url;
+      downloadBtn.href = last.url;
+      downloadBtn.download = last.fn;
     }
 
     document.getElementById('image').addEventListener('change', e => {
-      originalFile=e.target.files[0]; if(!originalFile)return;
-      cropperImage.src=URL.createObjectURL(originalFile); cropperImage.style.display='block'; preview.style.display='none'; downloadBtn.style.display='none';
-      if(cropper)cropper.destroy();
-      cropper=new Cropper(cropperImage,{viewMode:1,dragMode:'crop',autoCropArea:1});
-      resetButtons(); enableButtons(['btnCrop','btnReset']); history=[];
+      originalFile = e.target.files[0]; if(!originalFile) return;
+      cropperImage.src = URL.createObjectURL(originalFile);
+      cropperImage.style.display = 'block';
+      preview.style.display = 'none';
+      downloadBtn.style.display = 'none';
+      if(cropper) cropper.destroy();
+      cropper = new Cropper(cropperImage, {viewMode:1,dragMode:'crop',autoCropArea:1});
+      resetButtons(); enableButtons(['btnCrop','btnReset']); history = [];
     });
 
-    buttons.btnCrop.addEventListener('click',()=>{
-      cropper.getCroppedCanvas().toBlob(blob=>{
-        croppedBlob=blob; const url=URL.createObjectURL(blob);
-        history=[{url,fn:'original_crop.jpg'}]; preview.src=url; preview.style.display='block'; cropper.destroy();cropper=null;
+    buttons.btnCrop.addEventListener('click', () => {
+      cropper.getCroppedCanvas().toBlob(blob => {
+        croppedBlob = blob;
+        const url = URL.createObjectURL(blob);
+        history = [{url, fn:'original_crop.jpg'}];
+        preview.src = url;
+        preview.style.display = 'block';
+        cropperImage.style.display = 'none';
+        cropper.destroy(); cropper = null;
         enableButtons(['btnAdjust','btnSuperres','btnReset']);
-      },'image/jpeg');
+      }, 'image/jpeg');
     });
-    buttons.btnReset.addEventListener('click',()=>{ document.getElementById('image').dispatchEvent(new Event('change')); });
 
-    buttons.btnAdjust.addEventListener('click',()=>{
-      const form=new FormData(); form.append('image',croppedBlob||originalFile,originalFile.name);
-      form.append('hue',document.getElementById('hue').value);
-      form.append('sat',document.getElementById('sat').value);
-      form.append('val',document.getElementById('val').value);
-      fetch('{{ url_for("adjust") }}',{method:'POST',body:form}).then(pushAndPreview);
-      enableButtons(['btnUndoAdjust','btnBlur']);
+    buttons.btnReset.addEventListener('click', () => {
+      document.getElementById('image').value = ''; cropperImage.style.display = 'none'; preview.style.display = 'none'; downloadBtn.style.display = 'none'; resetButtons();
     });
-    buttons.btnUndoAdjust.addEventListener('click',()=>{undoTo(fn=>fn==='original_crop.jpg');enableButtons(['btnAdjust','btnSuperres']);});
 
-    buttons.btnBlur.addEventListener('click',()=>{
-      const fn=history[history.length-1].fn;
-      const form=new FormData(); form.append('filename',fn); form.append('radius',document.getElementById('blur').value);
-      fetch('{{ url_for("blur") }}',{method:'POST',body:form}).then(pushAndPreview);
+    buttons.btnAdjust.addEventListener('click', () => {
+      const form = new FormData();
+      form.append('image', croppedBlob || originalFile, originalFile.name);
+      form.append('hue', document.getElementById('hue').value);
+      form.append('sat', document.getElementById('sat').value);
+      form.append('val', document.getElementById('val').value);
+      fetch('{{ url_for("adjust") }}', {method:'POST', body: form}).then(pushAndPreview);
+      enableButtons(['btnUndoAdjust','btnContrast','btnBlur']);
+    });
+
+    buttons.btnUndoAdjust.addEventListener('click', () => {
+      undoTo(fn => fn === 'original_crop.jpg'); enableButtons(['btnAdjust','btnSuperres']);
+    });
+
+    buttons.btnContrast.addEventListener('click', () => {
+      const fn = history[history.length-1].fn;
+      const form = new FormData();
+      if (fn === 'original_crop.jpg') {
+        form.append('image', croppedBlob, originalFile.name);
+      } else {
+        form.append('filename', fn);
+      }
+      form.append('contrast', document.getElementById('contrast').value);
+      fetch('{{ url_for("contrast") }}', {method:'POST', body: form}).then(pushAndPreview);
+      enableButtons(['btnUndoContrast','btnBlur']);
+    });
+
+    buttons.btnUndoContrast.addEventListener('click', () => {
+      undoTo(fn => fn.startsWith('adjusted_') || fn === 'original_crop.jpg');
+      enableButtons(['btnContrast','btnBlur','btnSuperres']);
+    });
+
+    buttons.btnBlur.addEventListener('click', ()=> {
+      const fn = history[history.length-1].fn;
+      const form = new FormData(); form.append('filename', fn); form.append('radius', document.getElementById('blur').value);
+      fetch('{{ url_for("blur") }}', {method:'POST', body: form}).then(pushAndPreview);
       enableButtons(['btnUndoBlur','btnPosterize']);
     });
-    buttons.btnUndoBlur.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('adjusted_'));enableButtons(['btnBlur','btnSuperres']);});
 
-    buttons.btnPosterize.addEventListener('click',()=>{
-      const fn=history[history.length-1].fn; const levels=document.getElementById('levels').value;
-      const form=new FormData(); form.append('filename',fn); form.append('levels',levels);
-      fetch('{{ url_for("posterize") }}',{method:'POST',body:form}).then(pushAndPreview);
+    buttons.btnUndoBlur.addEventListener('click', ()=> {
+      undoTo(fn => fn.startsWith('adjusted_') || fn.startsWith('contrast_') || fn === 'original_crop.jpg');
+      enableButtons(['btnBlur','btnSuperres']);
+    });
+
+    buttons.btnPosterize.addEventListener('click', ()=> {
+      const fn = history[history.length-1].fn;
+      const form = new FormData(); form.append('filename', fn); form.append('levels', document.getElementById('levels').value);
+      fetch('{{ url_for("posterize") }}', {method:'POST', body: form}).then(pushAndPreview);
       enableButtons(['btnUndoPosterize','btnEdges']);
     });
-    buttons.btnUndoPosterize.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('blur_')||fn.startsWith('adjusted_'));enableButtons(['btnPosterize','btnSuperres']);});
 
-    buttons.btnEdges.addEventListener('click',()=>{
-      const fn=history[history.length-1].fn; const th1=document.getElementById('th1').value; const th2=document.getElementById('th2').value;
-      const form=new FormData(); form.append('filename',fn); form.append('th1',th1); form.append('th2',th2);
-      fetch('{{ url_for("edges") }}',{method:'POST',body:form}).then(pushAndPreview);
+    buttons.btnUndoPosterize.addEventListener('click', ()=> { undoTo(fn => fn.startsWith('blur_') || fn.startsWith('contrast_') || fn.startsWith('adjusted_') || fn === 'original_crop.jpg'); enableButtons(['btnPosterize','btnSuperres']); });
+
+    buttons.btnEdges.addEventListener('click', ()=> {
+      const fn = history[history.length-1].fn; const th1 = document.getElementById('th1').value; const th2 = document.getElementById('th2').value;
+      const form = new FormData(); form.append('filename', fn); form.append('th1', th1); form.append('th2', th2);
+      fetch('{{ url_for("edges") }}', {method:'POST', body: form}).then(pushAndPreview);
       enableButtons(['btnUndoEdges','btnSuperres']);
     });
-    buttons.btnUndoEdges.addEventListener('click',()=>{undoTo(fn=>fn.startsWith('posterize_')||fn.startsWith('blur_')||fn.startsWith('adjusted_'));enableButtons(['btnEdges','btnSuperres']);});
 
-    buttons.btnSuperres.addEventListener('click',()=>{
-      const fn=history[history.length-1].fn;
-      const form=new FormData(); form.append('filename',fn);
-      fetch('{{ url_for("superres") }}',{method:'POST',body:form}).then(pushAndPreview);
+    buttons.btnUndoEdges.addEventListener('click', ()=> { undoTo(fn => fn.startsWith('posterize_') || fn.startsWith('blur_') || fn.startsWith('contrast_') || fn.startsWith('adjusted_') || fn === 'original_crop.jpg'); enableButtons(['btnEdges','btnSuperres']); });
+
+    buttons.btnSuperres.addEventListener('click', ()=> {
+      const fn = history[history.length-1].fn;
+      const form = new FormData(); form.append('filename', fn);
+      fetch('{{ url_for("superres") }}', {method:'POST', body: form}).then(pushAndPreview);
       enableButtons(['btnUndoSuperres']);
     });
-    buttons.btnUndoSuperres.addEventListener('click',()=>{undoTo(fn=>!fn.startsWith('superres_'));enableButtons(['btnSuperres']);});
+
+    buttons.btnUndoSuperres.addEventListener('click', ()=> { undoTo(fn => !fn.startsWith('superres_')); enableButtons(['btnSuperres']); });
   </script>
 </body>
 </html>
