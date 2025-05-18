@@ -4,7 +4,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'static', 'uploads')
 PROCESSED_FOLDER = os.path.join(BASE_DIR, 'static', 'processed')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}  # WebP も許可
 # k-means パラメータ
 NUM_CLUSTERS = 20
 TERM_CRITERIA_MAX_ITER = 10

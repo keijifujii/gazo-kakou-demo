@@ -14,17 +14,30 @@ app = Flask(__name__)
 app.config.from_object(config)
 app.secret_key = 'your-secret-key'
 
-# フォルダ準備
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 
-ALLOWED_EXT = set(config.ALLOWED_EXTENSIONS)
+ALLOWED_EXT = set(config.ALLOWED_EXTENSIONS) | {'webp'}
 def allowed_file(fn):
     return '.' in fn and fn.rsplit('.', 1)[1].lower() in ALLOWED_EXT
 
 @app.route('/', methods=['GET'])
 def index():
     return render_template('index.html')
+
+def load_image(path):
+    """WebP/JPG/PNG/GIF → NumPy BGR配列で返す"""
+    with Image.open(path) as im:
+        return cv2.cvtColor(np.array(im.convert("RGB")), cv2.COLOR_RGB2BGR)
+
+def save_jpeg(np_bgr, out_path, quality=95):
+    """NumPy BGR配列→JPGで保存"""
+    im = Image.fromarray(cv2.cvtColor(np_bgr, cv2.COLOR_BGR2RGB))
+    im.save(out_path, format="JPEG", quality=quality)
+
+def to_jpg_filename(prefix, orig_filename):
+    base, _ = os.path.splitext(orig_filename)
+    return f"{prefix}_{base}.jpg"
 
 # 色調整
 @app.route('/adjust', methods=['POST'])
@@ -41,27 +54,22 @@ def adjust():
     sat = float(request.form.get('sat', 100)) / 100.0
     val = float(request.form.get('val', 100)) / 100.0
 
-    img = cv2.imread(in_path)
+    img = load_image(in_path)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV).astype(np.float32)
     hsv[:, :, 0] = (hsv[:, :, 0] + hue) % 180
     hsv[:, :, 1] = np.clip(hsv[:, :, 1] * sat, 0, 255)
     hsv[:, :, 2] = np.clip(hsv[:, :, 2] * val, 0, 255)
     out = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    out_fn = f"adjusted_{fn}"
+    out_fn = to_jpg_filename("adjusted", fn)
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
-    cv2.imwrite(out_path, out)
+    save_jpeg(out, out_path)
 
-    # URL を生成して返す
-    return jsonify({
-        'filename': out_fn,
-        'url': url_for('processed', filename=out_fn)
-    })
+    return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
 
 # コントラスト調整
 @app.route('/contrast', methods=['POST'])
 def contrast():
-    # アップロードされた blob を優先
     file = request.files.get('image')
     if file and allowed_file(file.filename):
         fn_src = secure_filename(file.filename)
@@ -70,7 +78,6 @@ def contrast():
         in_path = temp_path
         base_name = fn_src
     else:
-        # 既存ファイル名を使用
         base_name = request.form.get('filename')
         in_path = os.path.join(app.config['PROCESSED_FOLDER'], base_name)
         if not os.path.exists(in_path):
@@ -81,19 +88,13 @@ def contrast():
     except ValueError:
         return jsonify({'error': 'invalid contrast'}), 400
 
-    img = cv2.imread(in_path)
-    if img is None:
-        return jsonify({'error': 'cannot read image'}), 400
-
+    img = load_image(in_path)
     adjusted = cv2.convertScaleAbs(img, alpha=alpha, beta=0)
-    out_fn = f"contrast_{int(alpha*100)}_{base_name}"
+    out_fn = to_jpg_filename(f"contrast_{int(alpha*100)}", base_name)
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
-    cv2.imwrite(out_path, adjusted)
+    save_jpeg(adjusted, out_path)
 
-    return jsonify({
-        'filename': out_fn,
-        'url': url_for('processed', filename=out_fn)
-    })
+    return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
 
 # ぼかし
 @app.route('/blur', methods=['POST'])
@@ -108,13 +109,13 @@ def blur():
     if not os.path.exists(in_path):
         return jsonify({'error': 'file not found'}), 404
 
-    img = cv2.imread(in_path)
+    img = load_image(in_path)
     k = max(1, radius * 2 + 1)
     blurred = cv2.GaussianBlur(img, (k, k), 0)
 
-    out_fn = f"blur_{radius}_{filename}"
+    out_fn = to_jpg_filename(f"blur_{radius}", filename)
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
-    cv2.imwrite(out_path, blurred)
+    save_jpeg(blurred, out_path)
     return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
 
 # ポスタライズ
@@ -132,14 +133,14 @@ def posterize():
     if not os.path.exists(in_path):
         return jsonify({'error': 'file not found'}), 404
 
-    img = cv2.imread(in_path)
+    img = load_image(in_path)
     step = 255.0 / (levels - 1)
     poster = np.round(img.astype(np.float32) / step) * step
     poster = np.clip(poster, 0, 255).astype(np.uint8)
 
-    out_fn = f"posterize_{levels}_{filename}"
+    out_fn = to_jpg_filename(f"posterize_{levels}", filename)
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
-    cv2.imwrite(out_path, poster)
+    save_jpeg(poster, out_path)
     return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
 
 # 境界線抽出
@@ -156,17 +157,15 @@ def edges():
     if not os.path.exists(in_path):
         return jsonify({'error': 'file not found'}), 404
 
-    img = cv2.imread(in_path, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        return jsonify({'error': 'cannot read image'}), 400
-
-    edges = cv2.Canny(img, thresh1, thresh2)
+    img = load_image(in_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, thresh1, thresh2)
     inv = cv2.bitwise_not(edges)
     out = cv2.cvtColor(inv, cv2.COLOR_GRAY2BGR)
 
-    out_fn = f"edges_{thresh1}_{thresh2}_{filename}"
+    out_fn = to_jpg_filename(f"edges_{thresh1}_{thresh2}", filename)
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
-    cv2.imwrite(out_path, out)
+    save_jpeg(out, out_path)
     return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
 
 # 鮮明化
@@ -195,9 +194,9 @@ def superres():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-    out_fn = f"superres_{filename}"
+    out_fn = to_jpg_filename("superres", filename)
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
-    Image.fromarray(output).save(out_path)
+    Image.fromarray(output).save(out_path, format="JPEG", quality=95)
     return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
 
 @app.route('/processed/<filename>')
@@ -206,6 +205,3 @@ def processed(filename):
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
-    
-    
-    
