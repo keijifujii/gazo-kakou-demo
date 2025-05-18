@@ -4,10 +4,10 @@ __pycache__/
 
 # アップロード・処理画像の一時保存フォルダ（重い）
 
-# uploads/
-# processed/
-# static/uploads/
-# static/processed/
+ uploads/
+ processed/
+ static/uploads/
+ static/processed/
 
 
 # 仮想環境があれば除外（.venvなど）
