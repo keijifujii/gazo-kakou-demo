@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Python関係
 __pycache__/
 *.pyc
@@ -19,10 +18,3 @@ venv/
 # ログファイルや一時ファイル
 *.log
 *.tmp
-=======
-# Object file
-*.o
-
-# Ada Library Information
-*.ali
->>>>>>> 20d2639f29e5167dcc7d8439896bdd7101945cf2
