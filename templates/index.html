@@ -25,6 +25,17 @@
         <button id="btnCrop" disabled>① トリミング実行</button>
         <button id="btnReset" disabled>全てリセット</button>
       </div>
+      
+      
+      
+      <label>拡大倍率：
+        <input type="number" id="scale" value="2" min="1" max="8">
+      </label>
+      <button id="upsample-btn">解像度を上げる</button>
+      
+      
+      
+      
       <!-- 色調整 -->
       <div class="slider"><label>色相: <span id="hueVal">0</span></label><input type="range" id="hue" min="-50" max="50" value="0" oninput="hueVal.textContent=this.value"></div>
       <div class="slider"><label>彩度: <span id="satVal">100</span>%</label><input type="range" id="sat" min="0" max="200" value="100" oninput="satVal.textContent=this.value"></div>
@@ -78,6 +89,27 @@
 
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script>
+  
+  
+    const btn = document.getElementById('upsample-btn');
+  btn.addEventListener('click', () => {
+    const scale = document.getElementById('scale').value;
+    const form = new FormData();
+    form.append('filename', currentFilename);  // 現在表示中のファイル名
+    form.append('scale', scale);
+    fetch('/upsample', { method: 'POST', body: form })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) return alert(data.error);
+        currentFilename = data.filename;
+        document.getElementById('result-img').src = data.url;
+      });
+  });
+  
+  
+  
+  
+  
     const btns = [
       'btnCrop','btnReset',
       'btnAdjust','btnUndoAdjust',

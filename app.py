@@ -1,3 +1,4 @@
+#2025-06-02更新
 import os
 from flask import (
     Flask, render_template, request,
@@ -198,6 +199,37 @@ def superres():
     out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
     Image.fromarray(output).save(out_path, format="JPEG", quality=95)
     return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
+
+
+
+
+@app.route('/upsample', methods=['POST'])
+def upsample():
+    filename = request.form.get('filename')
+    try:
+        scale = int(request.form.get('scale', 2))
+        if scale < 1: raise ValueError
+    except ValueError:
+        return jsonify({'error': 'invalid scale'}), 400
+
+    in_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(in_path):
+        return jsonify({'error': 'file not found'}), 404
+
+    img = load_image(in_path)
+    h, w = img.shape[:2]
+    new_w, new_h = w * scale, h * scale
+    up = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+
+    out_fn = to_jpg_filename(f"upsample_{scale}x", filename)
+    out_path = os.path.join(app.config['PROCESSED_FOLDER'], out_fn)
+    save_jpeg(up, out_path)
+
+    return jsonify({'filename': out_fn, 'url': url_for('processed', filename=out_fn)})
+
+
+
+
 
 @app.route('/processed/<filename>')
 def processed(filename):
