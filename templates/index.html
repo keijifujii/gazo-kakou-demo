@@ -2,260 +2,832 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>画像編集アプリ（トリミング→色調整→ぼかし→ポスタライズ→境界線抽出→鮮明化）</title>
+  <title>画像編集アプリ</title>
   <link rel="stylesheet" href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" />
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
     .container { display: flex; gap: 20px; }
-    .form-area { flex: 1; max-width: 350px; }
-    .preview-area { flex: 1; }
-    .preview-area img { width: 100%; max-height: 600px; object-fit: contain; border: 1px solid #ccc; margin-bottom: 10px; }
-    .slider { margin: 10px 0; }
-    .slider label { display: block; font-weight: bold; margin-bottom: 4px; }
+    .form-area { flex: 0 0 300px; }
+    .preview-area {
+      flex: 1;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 80vh;
+      overflow: hidden;
+    }
+    .preview-area img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+      z-index: 1;
+      border: 1px solid #ccc;
+      transform-origin: center center;
+    }
+    #gridCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: none;
+      pointer-events: none;
+      z-index: 2;
+    }
     .buttons { margin: 10px 0; }
     .buttons button, .buttons a { margin-right: 8px; }
+    .slider { margin: 10px 0; }
+    .slider label { display: block; font-weight: bold; margin-bottom: 4px; }
+    
+    
+    
+    
+    /* トリミング枠カスタム線のスタイル */
+.cropper-crop-box .custom-line {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(255,255,255,0.7);
+}
+.cropper-crop-box .custom-line.vertical {
+  width: 1px;
+  top: 0; bottom: 0;
+}
+.cropper-crop-box .custom-line.horizontal {
+  height: 1px;
+  left: 0; right: 0;
+}
+    
+    /* ラッパーを overflow:hidden にしておくと安心　preview-areaに利用 */
+   #previewWrapper {
+     overflow: hidden;
+   }
+    
+    
   </style>
+  
 </head>
 <body>
-  <h1>画像編集アプリ</h1>
+  <h3>活用が限定的な画像編集アプリ</h3>
   <div class="container">
     <div class="form-area">
-      <p><label>画像選択：</label><br><input type="file" id="image" accept="image/*"></p>
-      <div class="buttons">
-        <button id="btnCrop" disabled>① トリミング実行</button>
-        <button id="btnReset" disabled>全てリセット</button>
+    
+    
+      <div class="form-area">
+    <!-- 追加：カテゴリ選択 -->
+    <label>トリミング比率・規格:号数:向き:</label>
+    <BR>
+      <select id="category">
+        <option value="">-- 選択 --</option>
+      </select>
+    </label>
+
+    <!-- 既存：キャンバス号数（サイズ）選択 -->
+    <label>
+      <select id="canvas"><!-- option は JS で動的に生成 --></select>
+    
+    </label>
+
+    <!-- 既存：向き選択 -->
+    <label>
+      <select id="orientation">
+        <option value="landscape">横向き</option>
+        <option value="portrait">縦向き</option>
+      </select>
+    </label>
+<br>
+<p id="sizeDisplay">サイズ: —×— cm</p>
+
+    <!-- 以降、画像選択～ボタン類はそのまま -->
+    <p>
+      <label>画像選択：</label><br>
+      <input type="file" id="image" accept="image/*">
+    </p>
+    
+    <div class="buttons">
+     <label style="display:block; font-weight:bold;">回転（トリミング前）</label>
+     <button id="rotateLeft"  disabled>↺ 左90°</button>
+     <button id="rotateRight" disabled>↻ 右90°</button>
+     <input  type="number" id="rotateDeg" value="0" step="1" min="-180" max="180" style="width:6em;">
+     <button id="rotateApply"  disabled>角度適用</button>
+     <button id="rotateReset"  disabled>角度リセット</button>
+   </div>
+    
+    
+    
+    
+    <div class="buttons">
+      <button id="btnCrop"    disabled>① トリミング実行</button>
+      <button id="btnReset"   disabled>全リセット</button>
+    </div>
+    <!-- （色調整～ダウンロードボタンまで既存のまま） -->
+  </div>
+
+
+
+      <div class="slider">
+        <label>色相: <span id="hueVal">0</span></label>
+        <input type="range" id="hue" min="-50" max="50" value="0" oninput="hueVal.textContent=this.value">
       </div>
-      
-      
-      
-      <label>拡大倍率：
-        <input type="number" id="scale" value="2" min="1" max="8">
-      </label>
-      <button id="upsample-btn">解像度を上げる</button>
-      
-      
-      
-      
-      <!-- 色調整 -->
-      <div class="slider"><label>色相: <span id="hueVal">0</span></label><input type="range" id="hue" min="-50" max="50" value="0" oninput="hueVal.textContent=this.value"></div>
-      <div class="slider"><label>彩度: <span id="satVal">100</span>%</label><input type="range" id="sat" min="0" max="200" value="100" oninput="satVal.textContent=this.value"></div>
-      <div class="slider"><label>明度: <span id="valVal">100</span>%</label><input type="range" id="val" min="0" max="200" value="100" oninput="valVal.textContent=this.value"></div>
+      <div class="slider">
+        <label>彩度: <span id="satVal">100</span>%</label>
+        <input type="range" id="sat" min="0" max="200" value="100" oninput="satVal.textContent=this.value">
+      </div>
+      <div class="slider">
+        <label>明度: <span id="valVal">100</span>%</label>
+        <input type="range" id="val" min="0" max="200" value="100" oninput="valVal.textContent=this.value">
+      </div>
       <div class="buttons">
         <button id="btnAdjust" disabled>② 色調整実行</button>
         <button id="btnUndoAdjust" disabled>戻る</button>
       </div>
-      <!-- コントラスト調整 -->
-      <div class="slider"><label>コントラスト: <span id="contrastVal">100</span>%</label>
+      <div class="slider">
+        <label>コントラスト: <span id="contrastVal">100</span>%</label>
         <input type="range" id="contrast" min="50" max="200" value="100" oninput="contrastVal.textContent=this.value">
       </div>
       <div class="buttons">
-        <button id="btnContrast" disabled>コントラスト実行</button>
+        <button id="btnContrast" disabled>③ コントラスト実行</button>
         <button id="btnUndoContrast" disabled>戻る</button>
       </div>
-      <!-- ぼかし -->
-      <div class="slider"><label>ぼかし: <span id="blurVal">0</span></label><input type="range" id="blur" min="0" max="10" value="0" oninput="blurVal.textContent=this.value"></div>
+      <div class="slider">
+        <label>ぼかし: <span id="blurVal">0</span></label>
+        <input type="range" id="blur" min="0" max="10" value="0" oninput="blurVal.textContent=this.value">
+      </div>
       <div class="buttons">
-        <button id="btnBlur" disabled>③ ぼかし実行</button>
+        <button id="btnBlur" disabled>④ ぼかし実行</button>
         <button id="btnUndoBlur" disabled>戻る</button>
       </div>
-      <!-- ポスタライズ -->
-      <div class="slider"><label>階調数: <span id="levelsVal">10</span></label><input type="range" id="levels" min="2" max="20" value="10" oninput="levelsVal.textContent=this.value"></div>
+      <div class="slider">
+        <label>階調数: <span id="levelsVal">30</span></label>
+        <input type="range" id="levels" min="2" max="30" value="30" oninput="levelsVal.textContent=this.value">
+      </div>
       <div class="buttons">
-        <button id="btnPosterize" disabled>④ ポスタライズ実行</button>
+        <button id="btnPosterize" disabled>⑤ ポスタライズ実行</button>
         <button id="btnUndoPosterize" disabled>戻る</button>
       </div>
-      <!-- エッジ抽出 -->
-      <div class="slider"><label>閾値1: <span id="th1Val">50</span></label><input type="range" id="th1" min="1" max="200" value="50" oninput="th1Val.textContent=this.value"></div>
-      <div class="slider"><label>閾値2: <span id="th2Val">70</span></label><input type="range" id="th2" min="1" max="300" value="70" oninput="th2Val.textContent=this.value"></div>
       <div class="buttons">
-        <button id="btnEdges" disabled>⑤ 境界線抽出実行</button>
-        <button id="btnUndoEdges" disabled>戻る</button>
-      </div>
-      <!-- 鮮明化 -->
-      <div class="buttons">
-        <button id="btnSuperres" disabled>⑥ 鮮明化実行（4倍）</button>
-        <button id="btnUndoSuperres" disabled>戻る</button>
+        <button id="btnExtract" disabled>⑥ 境界線抽出</button>
+        <button id="btnUndoExtract" disabled>戻る</button>
       </div>
       <div class="buttons">
-        <a id="downloadBtn" href="#" download style="display:none;">ダウンロード</a>
+        <button id="btnToggleGrid" disabled>グリッド表示／非表示</button>
+      </div>
+      <div class="buttons">
+        <!-- ここはもはやリンク先ではなくボタン扱い → JS で処理 -->
+        <button id="downloadBtn" style="display:none;">ダウンロード</button>
       </div>
     </div>
     <div class="preview-area">
-      <h3>プレビュー</h3>
-      <img id="cropperImage" style="display:none;">
-      <img id="preview" style="display:none;">
-    </div>
-  </div>
+     <div id="previewWrapper" style="position:relative; display:inline-block;">
+       <img id="preview" style="display:none; transform-origin: top left;">
+       <canvas id="gridCanvas"
+            style="display:none;
+                   position:absolute;
+                   top:0; left:0;
+                   width:100%;  /* ラッパーいっぱい */
+                   height:100%; /* ラッパーいっぱい */
+                   transform-origin: top left;">
+       </canvas>
+     </div>
+   </div>
+   
 
-  <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
-  <script>
+
+  <button id="downloadBtn" style="display:none;">ダウンロード</button>
+</div>
+<div class="buttons">
+  <label for="zoomSlider">ズーム：</label>
+  <input type="range" id="zoomSlider" min="0.1" max="3" step="0.1" value="1">
+  <span id="zoomVal">100%</span>
+</div>
+
+
+
+<script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  let originalURL = null;   // ← 追加：取り込み直後のプレビュ―URLを保持
+  // 要素取得
+  const fileInput        = document.getElementById('image');
+  const previewImg       = document.getElementById('preview');
+  const gridCanvas       = document.getElementById('gridCanvas');
+  const zoomSlider       = document.getElementById('zoomSlider');
+  const zoomVal          = document.getElementById('zoomVal');
+  const btnCrop          = document.getElementById('btnCrop');
+  const btnReset         = document.getElementById('btnReset');  // 全リセット
+  const btnAdjust        = document.getElementById('btnAdjust');
+  const btnUndoAdjust    = document.getElementById('btnUndoAdjust');
+  const btnContrast      = document.getElementById('btnContrast');
+  const btnUndoContrast  = document.getElementById('btnUndoContrast');
+  const btnBlur          = document.getElementById('btnBlur');
+  const btnUndoBlur      = document.getElementById('btnUndoBlur');
+  const btnPosterize     = document.getElementById('btnPosterize');
+  const btnUndoPosterize = document.getElementById('btnUndoPosterize');
+  const btnExtract       = document.getElementById('btnExtract');
+  const btnUndoExtract   = document.getElementById('btnUndoExtract');
+  const btnToggleGrid    = document.getElementById('btnToggleGrid');
+  const downloadBtn      = document.getElementById('downloadBtn');
+  const categorySelect   = document.getElementById('category');
+  const canvasSelect     = document.getElementById('canvas');
+  const orientationSelect= document.getElementById('orientation');
+  const previewWrapper   = document.getElementById('previewWrapper');
+  const sizeDisplay      = document.getElementById('sizeDisplay');
+  
+  // ★追加：回転UI参照 & 角度状態
+  const rotateLeft     = document.getElementById('rotateLeft');
+  const rotateRight    = document.getElementById('rotateRight');
+  const rotateApply    = document.getElementById('rotateApply');
+  const rotateReset    = document.getElementById('rotateReset');
+  const rotateDegInput = document.getElementById('rotateDeg');
+  let currentAngle = 0;
+
+
+  // ── カスタム分割線を描く関数 ──
+ function addCustomCropLines() {
+  const cropBox = document.querySelector('.cropper-crop-box');
+  if (!cropBox) return;
+  // まず前の線を全部消す
+  cropBox.querySelectorAll('.custom-line').forEach(el => el.remove());
+
+  // 各分割位置と線種を定義
+  const splits = [
+    { pos: 1/3,                         type: 'solid' },   // 3分割①
+    { pos: 2/3,                         type: 'solid' },   // 3分割②
+    { pos: 0.5,                         type: 'dashed' },  // 2分割（中心）
+    { pos: 0.382,                       type: 'solid' },   // 黄金比①
+    { pos: 0.618,                       type: 'solid' },   // 黄金比②
+    { pos: 1/(Math.SQRT2 + 1),          type: 'dashed' },  // √2分割①
+    { pos: Math.SQRT2/(Math.SQRT2 + 1), type: 'dashed' }   // √2分割②
+  ];
+
+  splits.forEach(({pos, type}) => {
+    ['vertical','horizontal'].forEach(dir => {
+      const line = document.createElement('div');
+      line.className = `custom-line ${dir}`;
+      // 配置
+      if (dir === 'vertical')   line.style.left = `${pos * 100}%`;
+      else                      line.style.top  = `${pos * 100}%`;
+      // 長さは CSS の .vertical/.horizontal で揃うので border のみ設定
+      if (type === 'solid') {
+        // 実線
+        if (dir==='vertical')   line.style.borderLeft = '1px solid rgba(255,255,255,0.7)';
+        else                    line.style.borderTop  = '1px solid rgba(255,255,255,0.7)';
+      } else {
+        // 破線
+        if (dir==='vertical')   line.style.borderLeft = '1px dashed rgba(255,255,255,0.7)';
+        else                    line.style.borderTop  = '1px dashed rgba(255,255,255,0.7)';
+      }
+      cropBox.appendChild(line);
+    });
+  });
+}
   
   
-    const btn = document.getElementById('upsample-btn');
-  btn.addEventListener('click', () => {
-    const scale = document.getElementById('scale').value;
+  
+// 指定キャンバスサイズ表示
+  function updateActualSize() {
+    const val = canvasSelect.value;
+    if (!val) {
+      sizeDisplay.textContent = 'サイズ: —×— cm';
+      return;
+    }
+    const [longCm, shortCm] = JSON.parse(val);
+    const orient = orientationSelect.value;
+    // 横向きなら long×short、縦向きなら short×long
+    const width  = orient === 'landscape' ? longCm  : shortCm;
+    const height = orient === 'landscape' ? shortCm : longCm;
+    sizeDisplay.textContent = `サイズ: 幅 ${width} cm × 高さ ${height} cm`;
+  }
+
+  // “号数” と “向き” の両方が変わるたびに更新
+  canvasSelect.addEventListener('change', updateActualSize);
+  orientationSelect.addEventListener('change', updateActualSize);
+
+
+
+  // 状態保持
+  let cropper     = null;
+  let blobForNext = null;
+  let history     = [];
+  let canvasData  = {};
+
+  // CSV 読み込み → カテゴリ一覧
+  fetch('/static/canvas_sizes_normalized.csv')
+    .then(res => {
+      if (!res.ok) throw new Error(`CSV fetch failed: ${res.status}`);
+      return res.text();
+    })
+    .then(text => {
+      text = text.replace(/^\uFEFF/, '').replace(/\r/g,'');
+      const lines = text.trim().split('\n');
+      lines.shift(); // ヘッダを除去
+      lines.forEach(line => {
+        const [cat,size,long,short] = line.split(',');
+        if (!canvasData[cat]) canvasData[cat] = [];
+        canvasData[cat].push({
+          size,
+          long:  parseFloat(long),
+          short: parseFloat(short)
+        });
+      });
+      Object.keys(canvasData).forEach(cat => {
+        const opt = document.createElement('option');
+        opt.value       = cat;
+        opt.textContent = cat;
+        categorySelect.append(opt);
+      });
+    })
+    .catch(err => {
+      console.error(err);
+      alert('CSV 読み込みに失敗しました。');
+    });
+
+  // カテゴリ選択時にサイズをリストアップ
+  categorySelect.addEventListener('change', () => {
+    const cat = categorySelect.value;
+    canvasSelect.innerHTML = '<option value="">-- 選択 --</option>';
+    if (!canvasData[cat]) return;
+    canvasData[cat].forEach(item => {
+      const opt = document.createElement('option');
+      opt.value       = JSON.stringify([item.long, item.short]);
+      opt.textContent = item.size;
+      canvasSelect.append(opt);
+    });
+  });
+
+  // プレビュー更新＆ダウンロード表示
+  function pushAndPreview(data) {
+    const url = (data.url || `/processed/${data.filename}`) + '?t=' + Date.now();
+    history.push({url, fn: data.filename});
+    previewImg.src            = url;
+    previewImg.style.display  = 'block';
+    downloadBtn.style.display = 'inline-block';
+    downloadBtn.dataset.filename = data.filename;
+    gridCanvas.style.display  = 'none';
+    btnToggleGrid.disabled    = false;
+  }
+
+  // Undo 用関数
+  function undoTo(predicate) {
+    while (history.length > 1) {
+      if (predicate(history.pop().fn)) break;
+    }
+    const last = history[history.length - 1];
+    previewImg.src = last.url;
+  }
+
+  // 初期化
+  [btnCrop,btnReset,btnAdjust,btnUndoAdjust,btnContrast,btnUndoContrast,
+   btnBlur,btnUndoBlur,btnPosterize,btnUndoPosterize,
+   btnExtract,btnUndoExtract,btnToggleGrid].forEach(b=>b.disabled=true);
+  previewImg.style.display  = 'none';
+  downloadBtn.style.display  = 'none';
+  zoomSlider.disabled       = true;
+
+  // 画像選択 → Cropper 起動
+fileInput.addEventListener('change', (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+
+  // ★Cropperが残っていたら完全破棄
+  if (cropper) { cropper.destroy(); cropper = null; }
+
+  const url = URL.createObjectURL(f);
+  originalURL = url;
+
+  // ★画像表示のリセット
+  previewImg.style.width = '';   // 前回の固定幅を解除
+  previewImg.style.height = '';  // 前回の固定高さを解除
+  previewImg.style.maxWidth = '100%';
+  previewImg.style.maxHeight = '100%';
+
+  previewImg.src = url;
+  previewImg.style.display = 'block';
+  gridCanvas.style.display = 'none';
+  downloadBtn.style.display = 'none';
+  zoomSlider.value  = 1;
+  zoomVal.textContent = '100%';
+  previewWrapper.style.transform = '';
+
+  // ★ここでキャンバス設定から aspectRatio を再取得
+  const [w_cm, h_cm] = JSON.parse(canvasSelect.value);
+  const orient       = orientationSelect.value;
+  const aspectRatio  = orient === 'landscape' ? w_cm/h_cm : h_cm/w_cm;
+
+
+
+
+             // ← ここを以下のように丸ごと差し替え
+         cropper = new Cropper(previewImg, {
+           aspectRatio:  aspectRatio,
+           viewMode:     1,
+           dragMode:     'crop',
+           autoCropArea: 1,
+           // デフォルト３分割ガイドは消して、自前で線を描く
+           guides:    false,
+           background:false,
+           highlight: false,
+           ready() {
+             // 初回描画
+             addCustomCropLines();
+             // 枠移動／ズーム時にも再描画
+             cropper.on('cropmove', addCustomCropLines);
+             cropper.on('zoom',     addCustomCropLines);
+             
+             // ★追加：回転（内部的には crop イベント）でも線を描き直す
+             cropper.on('crop', addCustomCropLines);
+             
+           }
+         });
+
+
+    btnCrop.disabled  = false;
+    btnReset.disabled = false;
+    
+    // ★追加：回転UIを有効化＆初期化
+    [rotateLeft, rotateRight, rotateApply, rotateReset].forEach(b => b.disabled = false);
+    currentAngle = 0;
+    rotateDegInput.value = 0;
+
+    
+  });
+
+
+
+// ★追加：回転イベント（トリミング前のみ）
+rotateLeft.addEventListener('click',  (e) => {
+  e.preventDefault();
+  if (!cropper) return;
+  cropper.rotate(-90);
+  currentAngle = (currentAngle - 90) % 360;
+  rotateDegInput.value = currentAngle;
+});
+rotateRight.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (!cropper) return;
+  cropper.rotate(90);
+  currentAngle = (currentAngle + 90) % 360;
+  rotateDegInput.value = currentAngle;
+});
+rotateApply.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (!cropper) return;
+  const deg = parseFloat(rotateDegInput.value) || 0;
+  cropper.rotateTo(deg);
+  currentAngle = deg;
+});
+rotateReset.addEventListener('click', (e) => {
+  e.preventDefault();
+  if (!cropper) return;
+  cropper.rotateTo(0);
+  currentAngle = 0;
+  rotateDegInput.value = 0;
+});
+
+
+
+  // トリミング実行
+  btnCrop.addEventListener('click', () => {
+    cropper.getCroppedCanvas().toBlob(blob => {
+      blobForNext = blob;
+      history     = [{url: URL.createObjectURL(blob), fn:'original_crop.jpg'}];
+      previewImg.src            = history[0].url;
+      previewImg.style.display  = 'block';
+      downloadBtn.style.display    = 'inline-block';
+      downloadBtn.dataset.filename = 'original_crop.jpg';
+      cropper.destroy(); cropper = null;
+      [btnAdjust,btnContrast,btnBlur,btnPosterize,btnExtract,btnToggleGrid]
+        .forEach(b=>b.disabled=false);
+      zoomSlider.disabled = false;
+    }, 'image/jpeg');
+  });
+
+
+// 全リセット：取り込み直後の状態に戻す
+ btnReset.addEventListener('click', e => {
+   e.preventDefault();
+   if (!originalURL) return;  // ファイル未選択時は何もしない
+
+   // 1) Cropper をリセット
+   if (cropper) { cropper.destroy(); cropper = null; }
+
+   // 2) プレビューをオリジナル画像に戻す
+   previewImg.src           = originalURL;
+   previewImg.style.display = 'block';
+
+   // 3) UI を初期化
+   downloadBtn.style.display  = 'none';
+   gridCanvas.style.display   = 'none';
+   zoomSlider.value           = 1;
+   zoomVal.textContent        = '100%';
+   previewImg.style.transform = '';
+
+   // 4) すべての履歴をクリア
+   history = [];
+
+   // 5) 各スライダーをデフォルト値に戻す
+   document.getElementById('hue').value       = 0;   document.getElementById('hueVal').textContent = 0;
+   document.getElementById('sat').value       = 100; document.getElementById('satVal').textContent = 100;
+   document.getElementById('val').value       = 100; document.getElementById('valVal').textContent = 100;
+   document.getElementById('contrast').value  = 100; document.getElementById('contrastVal').textContent = 100;
+   document.getElementById('blur').value      = 0;   document.getElementById('blurVal').textContent = 0;
+   document.getElementById('levels').value    = 10;  document.getElementById('levelsVal').textContent = 10;
+
+   // 6) Cropper を再初期化（取り込み直後のサイズ・向きで）
+   const [w_cm, h_cm] = JSON.parse(canvasSelect.value);
+   const orient       = orientationSelect.value;
+   const ratio        = orient === 'landscape' ? w_cm/h_cm : h_cm/w_cm;
+   cropper = new Cropper(previewImg, {
+     aspectRatio: ratio,
+     viewMode:    1,
+     dragMode:    'crop',
+     autoCropArea:1
+   });
+
+   // 7) ボタン状態を初期化
+   btnCrop.disabled      = false;
+   btnAdjust.disabled    = btnContrast.disabled = btnBlur.disabled =
+   btnPosterize.disabled = btnExtract.disabled  = btnToggleGrid.disabled = true;
+   zoomSlider.disabled   = false;
+ });
+
+
+
+
+
+
+
+
+  // 色調整
+  btnAdjust.addEventListener('click', () => {
     const form = new FormData();
-    form.append('filename', currentFilename);  // 現在表示中のファイル名
-    form.append('scale', scale);
-    fetch('/upsample', { method: 'POST', body: form })
-      .then(r => r.json())
-      .then(data => {
+    form.append('image', blobForNext, 'original_crop.jpg');
+    form.append('hue', document.getElementById('hue').value);
+    form.append('sat', document.getElementById('sat').value);
+    form.append('val', document.getElementById('val').value);
+    fetch('/adjust',{method:'POST', body:form})
+      .then(r=>r.json()).then(data=>{
         if (data.error) return alert(data.error);
-        currentFilename = data.filename;
-        document.getElementById('result-img').src = data.url;
+        pushAndPreview(data);
+        btnUndoAdjust.disabled = false;
       });
   });
-  
-  
-  
-  
-  
-    const btns = [
-      'btnCrop','btnReset',
-      'btnAdjust','btnUndoAdjust',
-      'btnContrast','btnUndoContrast',
-      'btnBlur','btnUndoBlur',
-      'btnPosterize','btnUndoPosterize',
-      'btnEdges','btnUndoEdges',
-      'btnSuperres','btnUndoSuperres'
-    ];
-    const buttons = {};
-    btns.forEach(id => buttons[id] = document.getElementById(id));
-    const downloadBtn = document.getElementById('downloadBtn');
-    const cropperImage = document.getElementById('cropperImage');
-    const preview = document.getElementById('preview');
-    let originalFile, croppedBlob, cropper, history = [];
+  btnUndoAdjust.addEventListener('click', () =>
+    undoTo(fn => fn === 'original_crop.jpg')
+  );
 
-    function resetButtons() {
-      btns.forEach(id => buttons[id].disabled = true);
-    }
-    function enableButtons(ids) {
-      ids.forEach(id => buttons[id].disabled = false);
-    }
-    function pushAndPreview(res) {
-      return res.json().then(data => {
-        if (data.error) { alert('エラー: ' + data.error); return; }
-        const base = data.url || `/processed/${data.filename}`;
-        const url = base + '?t=' + Date.now();
-        history.push({url,fn:data.filename});
-        preview.src = url;
-        preview.style.display = 'block';
-        cropperImage.style.display = 'none';
-        downloadBtn.href = url;
-        downloadBtn.download = data.filename;
-        downloadBtn.style.display = 'inline-block';
-        buttons.btnSuperres.disabled = false;
+  // コントラスト
+  btnContrast.addEventListener('click', () => {
+    const form = new FormData();
+    form.append('filename', history[history.length-1].fn);
+    form.append('contrast', document.getElementById('contrast').value);
+    fetch('/contrast',{method:'POST', body:form})
+      .then(r=>r.json()).then(data=>{
+        if (data.error) return alert(data.error);
+        pushAndPreview(data);
+        btnUndoContrast.disabled = false;
       });
-    }
-    function undoTo(predicate) {
-      while(history.length > 1) {
-        const top = history.pop();
-        if(predicate(top.fn)) break;
-      }
-      const last = history[history.length-1];
-      preview.src = last.url;
-      downloadBtn.href = last.url;
-      downloadBtn.download = last.fn;
-    }
+  });
+  btnUndoContrast.addEventListener('click', () =>
+    undoTo(fn => fn.includes('adjusted_') || fn === 'original_crop.jpg')
+  );
 
-    document.getElementById('image').addEventListener('change', e => {
-      originalFile = e.target.files[0]; if(!originalFile) return;
-      cropperImage.src = URL.createObjectURL(originalFile);
-      cropperImage.style.display = 'block';
-      preview.style.display = 'none';
-      downloadBtn.style.display = 'none';
-      if(cropper) cropper.destroy();
-      cropper = new Cropper(cropperImage, {viewMode:1,dragMode:'crop',autoCropArea:1});
-      resetButtons(); enableButtons(['btnCrop','btnReset']); history = [];
-    });
 
-    buttons.btnCrop.addEventListener('click', () => {
-      cropper.getCroppedCanvas().toBlob(blob => {
-        croppedBlob = blob;
-        const url = URL.createObjectURL(blob);
-        history = [{url, fn:'original_crop.jpg'}];
-        preview.src = url;
-        preview.style.display = 'block';
-        cropperImage.style.display = 'none';
-        cropper.destroy(); cropper = null;
-        enableButtons(['btnAdjust','btnSuperres','btnReset']);
-      }, 'image/jpeg');
-    });
+  // ぼかし
+  btnBlur.addEventListener('click', () => {
+    const form = new FormData();
+    form.append('filename', history[history.length-1].fn);
+    form.append('radius', document.getElementById('blur').value);
+    fetch('/blur',{method:'POST', body:form})
+      .then(r=>r.json()).then(data=>{
+        if (data.error) return alert(data.error);
+        pushAndPreview(data);
+        btnUndoBlur.disabled = false;
+      });
+  });
+  btnUndoBlur.addEventListener('click', () =>
+    undoTo(fn => fn.includes('contrast_') || fn === 'original_crop.jpg')
+  );
 
-    buttons.btnReset.addEventListener('click', () => {
-      document.getElementById('image').value = ''; cropperImage.style.display = 'none'; preview.style.display = 'none'; downloadBtn.style.display = 'none'; resetButtons();
-    });
+  // ポスタライズ
+  btnPosterize.addEventListener('click', () => {
+    const form = new FormData();
+    form.append('filename', history[history.length-1].fn);
+    form.append('levels', document.getElementById('levels').value);
+    fetch('/posterize',{method:'POST', body:form})
+      .then(r=>r.json()).then(data=>{
+        if (data.error) return alert(data.error);
+        pushAndPreview(data);
+        btnUndoPosterize.disabled = false;
+      });
+  });
+  btnUndoPosterize.addEventListener('click', () =>
+    undoTo(fn => fn.includes('blur_') || fn === 'original_crop.jpg')
+  );
 
-    buttons.btnAdjust.addEventListener('click', () => {
-      const form = new FormData();
-      form.append('image', croppedBlob || originalFile, originalFile.name);
-      form.append('hue', document.getElementById('hue').value);
-      form.append('sat', document.getElementById('sat').value);
-      form.append('val', document.getElementById('val').value);
-      fetch('{{ url_for("adjust") }}', {method:'POST', body: form}).then(pushAndPreview);
-      enableButtons(['btnUndoAdjust','btnContrast','btnBlur']);
-    });
+  // 境界線抽出
+  btnExtract.addEventListener('click', () => {
+    const form = new FormData();
+    form.append('image', blobForNext, 'original_crop.jpg');
+    fetch('/extract',{method:'POST', body:form})
+      .then(r=>r.json()).then(data=>{
+        if (data.error) return alert(data.error);
+        pushAndPreview(data);
+        btnUndoExtract.disabled = false;
+      });
+  });
+  btnUndoExtract.addEventListener('click', () =>
+    undoTo(fn => fn.includes('posterize_'))
+  );
 
-    buttons.btnUndoAdjust.addEventListener('click', () => {
-      undoTo(fn => fn === 'original_crop.jpg'); enableButtons(['btnAdjust','btnSuperres']);
-    });
+  // グリッド表示／非表示
+btnToggleGrid.addEventListener('click', () => {
+  const ctx = gridCanvas.getContext('2d');
+  // wrapper のサイズに合わせて内部解像度を設定
+  const w = previewWrapper.clientWidth;
+  const h = previewWrapper.clientHeight;
+  gridCanvas.width  = w;
+  gridCanvas.height = h;
 
-    buttons.btnContrast.addEventListener('click', () => {
-      const fn = history[history.length-1].fn;
-      const form = new FormData();
-      if (fn === 'original_crop.jpg') {
-        form.append('image', croppedBlob, originalFile.name);
+  if (gridCanvas.style.display === 'none') {
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    const N = 16;
+    for (let i = 1; i < N; i++) {
+      // 縦線
+      ctx.beginPath();
+      if (i % 2 === 0) {
+        ctx.setLineDash([]);        // 偶数：実線
       } else {
-        form.append('filename', fn);
+        ctx.setLineDash([5, 5]);    // 奇数：破線
       }
-      form.append('contrast', document.getElementById('contrast').value);
-      fetch('{{ url_for("contrast") }}', {method:'POST', body: form}).then(pushAndPreview);
-      enableButtons(['btnUndoContrast','btnBlur']);
-    });
+      const x = w * i / N;
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
 
-    buttons.btnUndoContrast.addEventListener('click', () => {
-      undoTo(fn => fn.startsWith('adjusted_') || fn === 'original_crop.jpg');
-      enableButtons(['btnContrast','btnBlur','btnSuperres']);
-    });
+      // 横線
+      ctx.beginPath();
+      if (i % 2 === 0) {
+        ctx.setLineDash([]);
+      } else {
+        ctx.setLineDash([5, 5]);
+      }
+      const y = h * i / N;
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+    // 描画後は線種を実線に戻しておく
+    ctx.setLineDash([]);
+    gridCanvas.style.display = 'block';
+  } else {
+    gridCanvas.style.display = 'none';
+  }
+});
 
-    buttons.btnBlur.addEventListener('click', ()=> {
-      const fn = history[history.length-1].fn;
-      const form = new FormData(); form.append('filename', fn); form.append('radius', document.getElementById('blur').value);
-      fetch('{{ url_for("blur") }}', {method:'POST', body: form}).then(pushAndPreview);
-      enableButtons(['btnUndoBlur','btnPosterize']);
-    });
 
-    buttons.btnUndoBlur.addEventListener('click', ()=> {
-      undoTo(fn => fn.startsWith('adjusted_') || fn.startsWith('contrast_') || fn === 'original_crop.jpg');
-      enableButtons(['btnBlur','btnSuperres']);
-    });
 
-    buttons.btnPosterize.addEventListener('click', ()=> {
-      const fn = history[history.length-1].fn;
-      const form = new FormData(); form.append('filename', fn); form.append('levels', document.getElementById('levels').value);
-      fetch('{{ url_for("posterize") }}', {method:'POST', body: form}).then(pushAndPreview);
-      enableButtons(['btnUndoPosterize','btnEdges']);
-    });
 
-    buttons.btnUndoPosterize.addEventListener('click', ()=> { undoTo(fn => fn.startsWith('blur_') || fn.startsWith('contrast_') || fn.startsWith('adjusted_') || fn === 'original_crop.jpg'); enableButtons(['btnPosterize','btnSuperres']); });
+  // ダウンロード（グリッド込み）
+// ★差し替え：何度でも安定して保存（グリッドはあれば合成）
+downloadBtn.addEventListener('click', async (e) => {
+  e.preventDefault();
 
-    buttons.btnEdges.addEventListener('click', ()=> {
-      const fn = history[history.length-1].fn; const th1 = document.getElementById('th1').value; const th2 = document.getElementById('th2').value;
-      const form = new FormData(); form.append('filename', fn); form.append('th1', th1); form.append('th2', th2);
-      fetch('{{ url_for("edges") }}', {method:'POST', body: form}).then(pushAndPreview);
-      enableButtons(['btnUndoEdges','btnSuperres']);
-    });
+  // 表示中の画像を読み込む
+  const bmp = await loadBitmapFromSrc(previewImg.src);
+  const w = bmp.width, h = bmp.height;
 
-    buttons.btnUndoEdges.addEventListener('click', ()=> { undoTo(fn => fn.startsWith('posterize_') || fn.startsWith('blur_') || fn.startsWith('contrast_') || fn.startsWith('adjusted_') || fn === 'original_crop.jpg'); enableButtons(['btnEdges','btnSuperres']); });
+  // オフスクリーンで合成
+  const off = document.createElement('canvas');
+  off.width = w; off.height = h;
+  const ctx = off.getContext('2d');
 
-    buttons.btnSuperres.addEventListener('click', ()=> {
-      const fn = history[history.length-1].fn;
-      const form = new FormData(); form.append('filename', fn);
-      fetch('{{ url_for("superres") }}', {method:'POST', body: form}).then(pushAndPreview);
-      enableButtons(['btnUndoSuperres']);
-    });
+  ctx.drawImage(bmp, 0, 0, w, h);
 
-    buttons.btnUndoSuperres.addEventListener('click', ()=> { undoTo(fn => !fn.startsWith('superres_')); enableButtons(['btnSuperres']); });
-  </script>
+  const gridVisible = (gridCanvas.style.display === 'block');
+  if (gridVisible && gridCanvas.width && gridCanvas.height) {
+    ctx.drawImage(gridCanvas, 0, 0, w, h);
+  }
+
+  // Blob作成 → 即URL化 → ダウンロード → 即revoke
+  off.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const base = (downloadBtn.dataset.filename || 'output.jpg').replace(/\.(jpe?g|png|webp)$/i,'');
+    const tag  = gridVisible ? 'grid' : 'save';
+    const fname = makeFileName(base, tag, 'jpg');
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100); // 100ms後にURL解放（即解放はSafari等で稀に失敗するため）
+  }, 'image/jpeg', 0.95);
+});
+
+
+
+
+// ── ズーム機能 ──
+zoomSlider.addEventListener('input', () => {
+  const s = parseFloat(zoomSlider.value);
+  // wrapper 全体を拡大縮小
+  previewWrapper.style.transform = `scale(${s})`;
+  zoomVal.textContent = `${Math.round(s*100)}%`;
+});
+
+
+
+// ===== ダウンロード用ユーティリティ =====
+
+// ファイル名を生成（元名 + 任意タグ + タイムスタンプ）
+function makeFileName(base, tag, ext='jpg') {
+  const t = new Date();
+  const z = n => String(n).padStart(2,'0');
+  const stamp = `${t.getFullYear()}${z(t.getMonth()+1)}${z(t.getDate())}-${z(t.getHours())}${z(t.getMinutes())}${z(t.getSeconds())}`;
+  return `${base}${tag ? '_'+tag : ''}_${stamp}.${ext}`;
+}
+
+// a要素で即時ダウンロード
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// グリッド表示中なら、プレビュー画像にグリッドを合成して保存用URLを作る
+function composeWithGridIfVisible(srcURL) {
+  // グリッド非表示なら、そのままURLを返す
+  if (gridCanvas.style.display === 'none' || gridCanvas.style.display === '') {
+    return Promise.resolve({ url: srcURL, tag: '' });
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+
+      // オフスクリーンで合成
+      const off = document.createElement('canvas');
+      off.width = w; off.height = h;
+      const ctx = off.getContext('2d');
+
+      // 1) 画像
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // 2) グリッド（プレビュー用canvasを画像サイズへ拡大して重ねる）
+      if (gridCanvas.width && gridCanvas.height) {
+        ctx.drawImage(gridCanvas, 0, 0, w, h);
+      }
+
+      off.toBlob(b => {
+        const url = URL.createObjectURL(b);
+        resolve({ url, tag: 'grid' });
+      }, 'image/jpeg', 0.95);
+    };
+    img.src = srcURL;
+  });
+}
+
+// ===== ダウンロード用ユーティリティ =====
+function makeFileName(base, tag, ext='jpg') {
+  const t=new Date(), z=n=>String(n).padStart(2,'0');
+  const stamp=`${t.getFullYear()}${z(t.getMonth()+1)}${z(t.getDate())}-${z(t.getHours())}${z(t.getMinutes())}${z(t.getSeconds())}`;
+  return `${base}${tag?`_${tag}`:''}_${stamp}.${ext}`;
+}
+function triggerDownload(url, filename) {
+  const a=document.createElement('a');
+  a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+}
+async function loadBitmapFromSrc(src) {
+  const blob = await fetch(src).then(r=>r.blob());
+  return await createImageBitmap(blob);
+}
+
+
+
+
+
+
+
+
+});  // end DOMContentLoaded
+</script>
+
+
+
+
 </body>
 </html>
+
